@@ -68,16 +68,14 @@ final class ConversationController extends ChangeNotifier {
       final prepared = processor.prepare(captured);
       // Re-check after asynchronous capture/processing so Stop looking wins the
       // race.
-      if (!visionModes.maySendForToolCall ||
-          generation != _privacyGeneration) {
+      if (!visionModes.maySendForToolCall || generation != _privacyGeneration) {
         return;
       }
       await provider.sendImage(
         prepared,
         'Fresh view requested by get_current_view.',
       );
-      if (!visionModes.maySendForToolCall ||
-          generation != _privacyGeneration) {
+      if (!visionModes.maySendForToolCall || generation != _privacyGeneration) {
         return;
       }
       lastTransmittedFrame = prepared;
