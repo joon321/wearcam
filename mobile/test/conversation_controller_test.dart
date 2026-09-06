@@ -122,9 +122,9 @@ final class FakeCamera implements CameraSource {
       ..setPixelRgb(10, 10, captureCount * 20, 0, 0);
     return CameraFrame(
       jpegBytes: Uint8List.fromList(img.encodeJpg(image)),
-      capturedAt: DateTime.now()
-          .toUtc()
-          .add(Duration(milliseconds: captureCount)),
+      capturedAt: DateTime.now().toUtc().add(
+        Duration(milliseconds: captureCount),
+      ),
       width: 20,
       height: 20,
       sourceId: 'fake-$captureCount',
