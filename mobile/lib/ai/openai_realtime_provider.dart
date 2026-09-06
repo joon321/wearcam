@@ -7,8 +7,10 @@ import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
 
 final class OpenAIRealtimeProvider implements AIProvider {
-  OpenAIRealtimeProvider({required this.backendBaseUri, http.Client? httpClient})
-    : _http = httpClient ?? http.Client();
+  OpenAIRealtimeProvider({
+    required this.backendBaseUri,
+    http.Client? httpClient,
+  }) : _http = httpClient ?? http.Client();
 
   final Uri backendBaseUri;
   final http.Client _http;
@@ -34,8 +36,11 @@ final class OpenAIRealtimeProvider implements AIProvider {
         backendBaseUri.resolve('/v1/realtime/client-secret'),
         headers: const {'content-type': 'application/json'},
       );
-      if (credentialResponse.statusCode != 201) throw StateError('Credential service failed');
-      final credentialJson = jsonDecode(credentialResponse.body) as Map<String, dynamic>;
+      if (credentialResponse.statusCode != 201) {
+        throw StateError('Credential service failed');
+      }
+      final credentialJson =
+          jsonDecode(credentialResponse.body) as Map<String, dynamic>;
       final temporaryCredential = credentialJson['value'];
       if (temporaryCredential is! String || temporaryCredential.isEmpty) {
         throw StateError('Credential service returned no temporary value');
@@ -51,7 +56,10 @@ final class OpenAIRealtimeProvider implements AIProvider {
       for (final track in localStream.getAudioTracks()) {
         await peer.addTrack(track, localStream);
       }
-      final channel = await peer.createDataChannel('oai-events', RTCDataChannelInit());
+      final channel = await peer.createDataChannel(
+        'oai-events',
+        RTCDataChannelInit(),
+      );
       _events = channel;
       channel.onMessage = (message) {
         if (!message.isBinary) _handleEvent(message.text);
@@ -69,7 +77,9 @@ final class OpenAIRealtimeProvider implements AIProvider {
       if (sdpResponse.statusCode < 200 || sdpResponse.statusCode >= 300) {
         throw StateError('Realtime WebRTC negotiation failed');
       }
-      await peer.setRemoteDescription(RTCSessionDescription(sdpResponse.body, 'answer'));
+      await peer.setRemoteDescription(
+        RTCSessionDescription(sdpResponse.body, 'answer'),
+      );
       _states.add(AIConnectionState.connected);
     } catch (_) {
       _states.add(AIConnectionState.failed);
@@ -87,7 +97,8 @@ final class OpenAIRealtimeProvider implements AIProvider {
       final delta = event['delta'];
       if (delta is String) _transcript.add(delta);
     }
-    if (type == 'response.function_call_arguments.done' && event['name'] is String) {
+    if (type == 'response.function_call_arguments.done' &&
+        event['name'] is String) {
       final arguments = jsonDecode((event['arguments'] as String?) ?? '{}');
       _toolCalls.add(
         ToolCall(
@@ -101,7 +112,8 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   void _send(Map<String, Object?> event) {
     final channel = _events;
-    if (channel == null || channel.state != RTCDataChannelState.RTCDataChannelOpen) {
+    if (channel == null ||
+        channel.state != RTCDataChannelState.RTCDataChannelOpen) {
       throw StateError('Realtime data channel is not open');
     }
     channel.send(RTCDataChannelMessage(jsonEncode(event)));
@@ -133,16 +145,24 @@ final class OpenAIRealtimeProvider implements AIProvider {
         'content': [
           {
             'type': 'input_text',
-            'text': '$context Captured ${frame.capturedAt.toIso8601String()} from ${frame.sourceId}.',
+            'text':
+                '$context Captured ${frame.capturedAt.toIso8601String()} '
+                'from ${frame.sourceId}.',
           },
-          {'type': 'input_image', 'image_url': 'data:image/jpeg;base64,$base64Image'},
+          {
+            'type': 'input_image',
+            'image_url': 'data:image/jpeg;base64,$base64Image',
+          },
         ],
       },
     });
   }
 
   @override
-  Future<void> completeToolCall(String callId, Map<String, Object?> output) async {
+  Future<void> completeToolCall(
+    String callId,
+    Map<String, Object?> output,
+  ) async {
     _send({
       'type': 'conversation.item.create',
       'item': {
@@ -156,7 +176,8 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   @override
   Future<void> setMicrophoneMuted(bool muted) async {
-    for (final track in _localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
+    for (final track
+        in _localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
       track.enabled = !muted;
     }
   }

@@ -16,7 +16,9 @@ final class PhoneCameraSource implements CameraSource {
     _status.add(CameraStatus.connecting);
     try {
       final cameras = await availableCameras();
-      final rear = cameras.where((camera) => camera.lensDirection == CameraLensDirection.back).first;
+      final rear = cameras
+          .where((camera) => camera.lensDirection == CameraLensDirection.back)
+          .first;
       final controller = CameraController(
         rear,
         ResolutionPreset.high,
@@ -38,7 +40,8 @@ final class PhoneCameraSource implements CameraSource {
     if (controller == null || !controller.value.isInitialized) {
       throw StateError('Rear camera is not connected');
     }
-    // Timestamp immediately after plugin capture completion: no preview/cached frame is used.
+    // Timestamp immediately after plugin capture completion: no preview/cached
+    // frame is used.
     final file = await controller.takePicture();
     final bytes = await file.readAsBytes();
     final size = controller.value.previewSize;

@@ -2,10 +2,20 @@ import 'dart:async';
 
 import 'package:wearcam/domain/prepared_frame.dart';
 
-enum AIConnectionState { disconnected, connecting, connected, reconnecting, failed }
+enum AIConnectionState {
+  disconnected,
+  connecting,
+  connected,
+  reconnecting,
+  failed,
+}
 
 final class ToolCall {
-  const ToolCall({required this.name, required this.callId, required this.arguments});
+  const ToolCall({
+    required this.name,
+    required this.callId,
+    required this.arguments,
+  });
   final String name;
   final String callId;
   final Map<String, Object?> arguments;

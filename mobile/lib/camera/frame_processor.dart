@@ -12,14 +12,19 @@ final class FrameRejected implements Exception {
 }
 
 final class FrameProcessor {
-  const FrameProcessor({this.maxAge = const Duration(seconds: 5), this.longEdge = 1280});
+  const FrameProcessor({
+    this.maxAge = const Duration(seconds: 5),
+    this.longEdge = 1280,
+  });
   final Duration maxAge;
   final int longEdge;
 
   PreparedFrame prepare(CameraFrame frame, {DateTime? now}) {
     final current = now ?? DateTime.now().toUtc();
     if (current.difference(frame.capturedAt.toUtc()) > maxAge ||
-        frame.capturedAt.toUtc().isAfter(current.add(const Duration(seconds: 1)))) {
+        frame.capturedAt.toUtc().isAfter(
+          current.add(const Duration(seconds: 1)),
+        )) {
       throw const FrameRejected('Frame is not fresh');
     }
     final decoded = img.decodeJpg(frame.jpegBytes);
@@ -38,7 +43,9 @@ final class FrameProcessor {
       );
     }
     final sharpness = _laplacianVariance(oriented);
-    if (!sharpness.isFinite) throw const FrameRejected('Could not measure sharpness');
+    if (!sharpness.isFinite) {
+      throw const FrameRejected('Could not measure sharpness');
+    }
     return PreparedFrame(
       jpegBytes: img.encodeJpg(oriented, quality: 82),
       capturedAt: frame.capturedAt.toUtc(),
@@ -56,7 +63,8 @@ final class FrameProcessor {
     final values = <double>[];
     for (var y = 1; y < sample.height - 1; y++) {
       for (var x = 1; x < sample.width - 1; x++) {
-        double luminance(int px, int py) => img.getLuminance(sample.getPixel(px, py)).toDouble();
+        double luminance(int px, int py) =>
+            img.getLuminance(sample.getPixel(px, py)).toDouble();
         values.add(
           4 * luminance(x, y) -
               luminance(x - 1, y) -
@@ -68,6 +76,10 @@ final class FrameProcessor {
     }
     if (values.isEmpty) return 0;
     final mean = values.reduce((a, b) => a + b) / values.length;
-    return values.fold<double>(0, (sum, value) => sum + math.pow(value - mean, 2)) / values.length;
+    return values.fold<double>(
+          0,
+          (sum, value) => sum + math.pow(value - mean, 2),
+        ) /
+        values.length;
   }
 }

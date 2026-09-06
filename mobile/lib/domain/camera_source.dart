@@ -2,7 +2,12 @@ import 'dart:typed_data';
 
 enum CameraStatus { disconnected, connecting, connected, failed }
 
-enum FrameOrientation { portraitUp, portraitDown, landscapeLeft, landscapeRight }
+enum FrameOrientation {
+  portraitUp,
+  portraitDown,
+  landscapeLeft,
+  landscapeRight,
+}
 
 final class CameraFrame {
   const CameraFrame({

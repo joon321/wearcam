@@ -17,7 +17,8 @@ final class ConversationController extends ChangeNotifier {
     _toolSubscription = provider.toolCalls.listen(_handleToolCall);
     _stateSubscription = provider.connectionStates.listen((state) {
       connectionState = state;
-      if (state == AIConnectionState.disconnected || state == AIConnectionState.failed) {
+      if (state == AIConnectionState.disconnected ||
+          state == AIConnectionState.failed) {
         visionModes.onSessionClosed();
       }
       notifyListeners();
@@ -54,7 +55,10 @@ final class ConversationController extends ChangeNotifier {
   Future<void> _handleToolCall(ToolCall call) async {
     if (call.name != 'get_current_view') return;
     if (!visionModes.maySendForToolCall || _captureInFlight) {
-      await provider.completeToolCall(call.callId, {'ok': false, 'reason': 'visual transmission disabled'});
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'visual transmission disabled',
+      });
       return;
     }
     _captureInFlight = true;
@@ -62,10 +66,20 @@ final class ConversationController extends ChangeNotifier {
     try {
       final captured = await camera.capture();
       final prepared = processor.prepare(captured);
-      // Re-check after asynchronous capture/processing so Stop looking wins the race.
-      if (!visionModes.maySendForToolCall || generation != _privacyGeneration) return;
-      await provider.sendImage(prepared, 'Fresh view requested by get_current_view.');
-      if (!visionModes.maySendForToolCall || generation != _privacyGeneration) return;
+      // Re-check after asynchronous capture/processing so Stop looking wins the
+      // race.
+      if (!visionModes.maySendForToolCall ||
+          generation != _privacyGeneration) {
+        return;
+      }
+      await provider.sendImage(
+        prepared,
+        'Fresh view requested by get_current_view.',
+      );
+      if (!visionModes.maySendForToolCall ||
+          generation != _privacyGeneration) {
+        return;
+      }
       lastTransmittedFrame = prepared;
       await provider.completeToolCall(call.callId, {
         'ok': true,
@@ -74,7 +88,10 @@ final class ConversationController extends ChangeNotifier {
       });
     } catch (caught) {
       error = caught.toString();
-      await provider.completeToolCall(call.callId, {'ok': false, 'reason': 'fresh frame unavailable'});
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'fresh frame unavailable',
+      });
     } finally {
       _captureInFlight = false;
       notifyListeners();
