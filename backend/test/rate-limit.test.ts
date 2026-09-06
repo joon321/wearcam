@@ -11,3 +11,14 @@ test("limits requests and resets the fixed window", () => {
   now = 100;
   assert.equal(limiter.allow("client"), true);
 });
+
+test("removes expired inactive client entries", () => {
+  let now = 0;
+  const limiter = new FixedWindowRateLimiter(2, 100, () => now);
+  limiter.allow("inactive");
+  assert.equal(limiter.trackedClientCount, 1);
+
+  now = 100;
+  limiter.allow("current");
+  assert.equal(limiter.trackedClientCount, 1);
+});

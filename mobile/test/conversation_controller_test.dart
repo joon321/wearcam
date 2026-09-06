@@ -7,6 +7,7 @@ import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
+import 'package:wearcam/domain/vision_mode.dart';
 
 void main() {
   test(
@@ -59,6 +60,21 @@ void main() {
     controller.dispose();
   });
 
+  test('disconnects camera when provider startup fails', () async {
+    final camera = FakeCamera();
+    final provider = FakeProvider(failStart: true);
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+    );
+
+    await expectLater(controller.start(), throwsStateError);
+
+    expect(camera.disconnectCount, 1);
+    expect(controller.visionModes.mode, VisionMode.off);
+    controller.dispose();
+  });
+
   test('Stop looking during capture prevents pending transmission', () async {
     final gate = Completer<void>();
     final camera = FakeCamera(captureGate: gate.future);
@@ -75,6 +91,10 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(provider.images, isEmpty);
     expect(controller.lastTransmittedFrame, isNull);
+    expect(provider.outputs['pending'], {
+      'ok': false,
+      'reason': 'visual transmission cancelled',
+    });
     controller.dispose();
   });
 }
@@ -84,12 +104,16 @@ final class FakeCamera implements CameraSource {
   final Future<void>? captureGate;
   final _status = StreamController<CameraStatus>.broadcast();
   int captureCount = 0;
+  int disconnectCount = 0;
   @override
   Stream<CameraStatus> get status => _status.stream;
   @override
   Future<void> connect() async => _status.add(CameraStatus.connected);
   @override
-  Future<void> disconnect() async => _status.add(CameraStatus.disconnected);
+  Future<void> disconnect() async {
+    disconnectCount += 1;
+    _status.add(CameraStatus.disconnected);
+  }
   @override
   Future<CameraFrame> capture() async {
     await captureGate;
@@ -111,11 +135,15 @@ final class FakeCamera implements CameraSource {
 }
 
 final class FakeProvider implements AIProvider {
+  FakeProvider({this.failStart = false});
+
+  final bool failStart;
   final _states = StreamController<AIConnectionState>.broadcast();
   final _transcript = StreamController<String>.broadcast();
   final _tools = StreamController<ToolCall>.broadcast();
   final _completed = StreamController<String>.broadcast();
   final images = <PreparedFrame>[];
+  final outputs = <String, Map<String, Object?>>{};
   Stream<String> get completed => _completed.stream;
   void issueToolCall(String id) => _tools.add(
     ToolCall(name: 'get_current_view', callId: id, arguments: const {}),
@@ -127,7 +155,10 @@ final class FakeProvider implements AIProvider {
   @override
   Stream<ToolCall> get toolCalls => _tools.stream;
   @override
-  Future<void> startSession() async => _states.add(AIConnectionState.connected);
+  Future<void> startSession() async {
+    if (failStart) throw StateError('provider startup failed');
+    _states.add(AIConnectionState.connected);
+  }
   @override
   Future<void> stopSession() async =>
       _states.add(AIConnectionState.disconnected);
@@ -138,7 +169,10 @@ final class FakeProvider implements AIProvider {
   Future<void> completeToolCall(
     String callId,
     Map<String, Object?> output,
-  ) async => _completed.add(callId);
+  ) async {
+    outputs[callId] = output;
+    _completed.add(callId);
+  }
   @override
   Future<void> interrupt() async {}
   @override

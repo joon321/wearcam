@@ -47,7 +47,12 @@ final class ConversationController extends ChangeNotifier {
   Future<void> start() async {
     error = null;
     await camera.connect();
-    await provider.startSession();
+    try {
+      await provider.startSession();
+    } catch (_) {
+      await camera.disconnect();
+      rethrow;
+    }
     visionModes.startConversation();
     notifyListeners();
   }
@@ -69,6 +74,7 @@ final class ConversationController extends ChangeNotifier {
       // Re-check after asynchronous capture/processing so Stop looking wins the
       // race.
       if (!visionModes.maySendForToolCall || generation != _privacyGeneration) {
+        await _completePrivacyCancellation(call.callId);
         return;
       }
       await provider.sendImage(
@@ -76,6 +82,7 @@ final class ConversationController extends ChangeNotifier {
         'Fresh view requested by get_current_view.',
       );
       if (!visionModes.maySendForToolCall || generation != _privacyGeneration) {
+        await _completePrivacyCancellation(call.callId);
         return;
       }
       lastTransmittedFrame = prepared;
@@ -95,6 +102,12 @@ final class ConversationController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> _completePrivacyCancellation(String callId) =>
+      provider.completeToolCall(callId, {
+        'ok': false,
+        'reason': 'visual transmission cancelled',
+      });
 
   Future<void> stopLooking() async {
     _privacyGeneration += 1;

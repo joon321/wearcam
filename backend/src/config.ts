@@ -13,10 +13,15 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PORT must be an integer from 1 to 65535");
   }
+  const environment = env.NODE_ENV?.trim() || "development";
+  const allowedOrigin = env.ALLOWED_ORIGIN?.trim() || "http://localhost:8787";
+  if (environment === "production" && allowedOrigin === "*") {
+    throw new Error('ALLOWED_ORIGIN must not be "*" in production');
+  }
   return {
     apiKey,
     port,
-    allowedOrigin: env.ALLOWED_ORIGIN ?? "*",
+    allowedOrigin,
     model: env.OPENAI_REALTIME_MODEL ?? "gpt-realtime",
     apiBaseUrl: (env.OPENAI_API_BASE_URL ?? "https://api.openai.com").replace(
       /\/$/,

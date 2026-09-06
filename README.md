@@ -28,10 +28,10 @@ npm install
 npm run dev
 ```
 
-The service listens on `http://127.0.0.1:8787` by default. For an Android emulator,
-start the app with `--dart-define=WEARCAM_BACKEND_URL=http://10.0.2.2:8787`.
-A physical device needs an HTTPS URL reachable from that device. iOS local HTTP is
-not enabled by default.
+The service listens on `http://127.0.0.1:8787` by default. Expose it through a
+development TLS proxy or tunnel before starting the mobile app: WearCam requires
+`WEARCAM_BACKEND_URL` to be an HTTPS URL reachable from the device. Never embed a
+permanent provider credential in that URL or in the mobile configuration.
 
 ## Mobile setup
 

@@ -20,6 +20,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
   RTCPeerConnection? _peer;
   RTCDataChannel? _events;
   MediaStream? _localStream;
+  bool _microphoneMuted = false;
 
   @override
   Stream<AIConnectionState> get connectionStates => _states.stream;
@@ -54,6 +55,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
       });
       _localStream = localStream;
       for (final track in localStream.getAudioTracks()) {
+        track.enabled = !_microphoneMuted;
         await peer.addTrack(track, localStream);
       }
       final channel = await peer.createDataChannel(
@@ -176,6 +178,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   @override
   Future<void> setMicrophoneMuted(bool muted) async {
+    _microphoneMuted = muted;
     for (final track
         in _localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
       track.enabled = !muted;

@@ -9,7 +9,8 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "noEmitOnError": true
+    "noEmitOnError": true,
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"]
 }
