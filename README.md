@@ -23,14 +23,15 @@ source of truth is [`WearCam_Codex_Build_Brief.md`](WearCam_Codex_Build_Brief.md
 ```sh
 cd backend
 cp .env.example .env
-# Set OPENAI_API_KEY in .env; never put it in mobile configuration.
+# Add OPENAI_API_KEY only to .env; never put it in mobile configuration.
 npm install
 npm run dev
 ```
 
-The service listens on all interfaces on port `8787`. Keep `OPENAI_API_KEY` only in
-the backend environment. Each session asks this service for a short-lived Realtime
-credential; the APK contains only the backend URL.
+`npm run dev` automatically loads `backend/.env` and starts the service in watch
+mode on port `8787` by default. Keep `OPENAI_API_KEY` only in that server-side
+file. Each session asks this service for a short-lived Realtime credential; the
+APK contains only the backend URL.
 
 ## Mobile setup
 
