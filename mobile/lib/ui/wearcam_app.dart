@@ -6,11 +6,7 @@ import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
 final class WearCamApp extends StatelessWidget {
-  const WearCamApp({
-    required this.camera,
-    required this.controller,
-    super.key,
-  });
+  const WearCamApp({required this.camera, required this.controller, super.key});
   final PhoneCameraSource camera;
   final ConversationController controller;
 
@@ -195,9 +191,7 @@ final class _Conversation extends StatelessWidget {
           const SizedBox(height: 16),
           FilledButton.tonalIcon(
             onPressed: controller.toggleMute,
-            icon: Icon(
-              controller.microphoneMuted ? Icons.mic_off : Icons.mic,
-            ),
+            icon: Icon(controller.microphoneMuted ? Icons.mic_off : Icons.mic),
             label: Text(
               controller.microphoneMuted
                   ? 'Unmute microphone'

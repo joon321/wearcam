@@ -34,10 +34,15 @@ that they are legitimate generated output.
 
 ## CI
 
-`.github/workflows/ci.yml` pins Ubuntu, Node, Java, Flutter, and action release
-versions. It runs the backend check and the required Flutter dependency, formatting,
-analysis, test, and Android debug-build commands. CI cannot acquire a GitHub status
-until the branch reaches a GitHub repository.
+GitHub Actions ran the mobile job with Flutter 3.35.2. `flutter analyze`, all
+Flutter tests, and `flutter build apk --debug` passed. The formatter had temporarily
+been allowed to modify CI's checkout so those later checks could run; the workflow
+now restores the required non-mutating formatting check. GitHub Actions is the
+authoritative validation for the manually formatted committed Dart sources.
+
+These automated results do not verify physical-device behavior or the OpenAI
+Realtime protocol. Physical Android and iPhone tests remain outstanding, and the
+iOS build still requires a macOS host with Xcode.
 
 ## Next unblock
 
