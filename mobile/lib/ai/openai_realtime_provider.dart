@@ -191,7 +191,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
   @override
   Future<void> stopSession() async {
     for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
-      track.stop();
+      await track.stop();
     }
     await _localStream?.dispose();
     _localStream = null;

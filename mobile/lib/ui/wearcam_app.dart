@@ -213,8 +213,8 @@ final class _Conversation extends StatelessWidget {
 final class _Settings extends StatelessWidget {
   const _Settings();
   @override
-  Widget build(BuildContext context) => const ListView(
-    children: [
+  Widget build(BuildContext context) => ListView(
+    children: const [
       ListTile(title: Text('Provider'), subtitle: Text('OpenAI Realtime')),
       ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
       ListTile(title: Text('Long edge'), subtitle: Text('1280 px maximum')),

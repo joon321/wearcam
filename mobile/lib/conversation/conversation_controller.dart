@@ -19,7 +19,7 @@ final class ConversationController extends ChangeNotifier {
       connectionState = state;
       if (state == AIConnectionState.disconnected ||
           state == AIConnectionState.failed) {
-        visionModes.onSessionClosed();
+        this.visionModes.onSessionClosed();
       }
       notifyListeners();
     });
