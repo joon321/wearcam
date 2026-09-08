@@ -74,7 +74,8 @@ the computer's LAN address (not `localhost`):
 
 ```sh
 cd backend
-OPENAI_API_KEY='<server-only key>' npm run dev
+# Configure OPENAI_API_KEY in backend/.env first, as described above.
+npm run dev
 # In another shell; replace the example address with the computer's LAN address.
 cd ../mobile
 flutter build apk --debug \
