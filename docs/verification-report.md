@@ -51,6 +51,18 @@ the pinned Flutter 3.35.2 SDK and Android SDK. Then run `flutter create` against
 temporary directory, reconcile its generated Android/iOS files, and execute every
 required mobile check before changing milestone status.
 
+## Validation-phase update (2026-09-08)
+
+The Android/iOS scaffold reconciliation and Realtime contract review are tracked
+in this focused validation branch. CI now uploads `app-debug.apk` as the
+`wearcam-android-debug` artifact after analysis, tests, and a successful debug
+build. It does not receive or use an OpenAI API key.
+
+The current container still has no Flutter/Dart or Android SDK and cannot run the
+authoritative mobile checks. GitHub Actions with pinned Flutter 3.35.2 remains the
+authority. Physical Android testing, live OpenAI testing, Bluetooth testing, iOS
+testing on macOS, and strict committed-source Dart formatting remain outstanding.
+
 ## Text-only pull-request transport
 
 The original branch diff contained six binary files: five placeholder Android PNG

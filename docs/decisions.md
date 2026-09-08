@@ -8,10 +8,23 @@ endpoint and returns its response without the permanent key. The mobile app send
 its SDP to the Realtime calls endpoint using only that short-lived value.
 
 The default model is `gpt-realtime`. Realtime event wire values are isolated in
-`OpenAIRealtimeProvider`, so documentation-driven updates do not leak through the
-application. Live protocol validation is still required because official OpenAI
-documentation was unreachable from this build environment (HTTP 403 / docs tool
-unauthorized on 2026-09-06).
+`OpenAIRealtimeProtocol`, so documentation-driven updates do not leak through the
+application. The protocol was reviewed on 2026-09-08 against these official pages:
+
+- https://developers.openai.com/api/docs/guides/realtime-webrtc
+- https://developers.openai.com/api/docs/guides/realtime-conversations
+- https://developers.openai.com/api/docs/guides/realtime-model-capabilities
+
+The reviewed flow uses `POST /v1/realtime/client_secrets` on the backend, sends the
+offer as `application/sdp` to `POST /v1/realtime/calls` with the ephemeral value,
+and installs the returned SDP answer. Conversation images use an `input_image`
+content part with a JPEG data URL. Tool arguments are accepted only from
+`response.function_call_arguments.done`, and outputs use `function_call_output`
+followed by `response.create`. Interruption sends `response.cancel` and clears the
+WebRTC output audio buffer so already-buffered speech does not continue playing.
+
+No live credential was used for this review. The permanent `OPENAI_API_KEY` remains
+exclusively in the backend environment.
 
 ## Images and privacy
 
