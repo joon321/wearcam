@@ -58,10 +58,10 @@ in this focused validation branch. CI now uploads `app-debug.apk` as the
 `wearcam-android-debug` artifact after analysis, tests, and a successful debug
 build. It does not receive or use an OpenAI API key.
 
-The current container still has no Flutter/Dart or Android SDK and cannot run the
-authoritative mobile checks. GitHub Actions with pinned Flutter 3.35.2 remains the
-authority. Physical Android testing, live OpenAI testing, Bluetooth testing, iOS
-testing on macOS, and strict committed-source Dart formatting remain outstanding.
+At that validation point, the container had no Flutter/Dart or Android SDK, so
+GitHub Actions with pinned Flutter 3.35.2 was the authority. The later prototype
+update below supersedes that toolchain status. Physical Android testing, live
+OpenAI testing, Bluetooth testing, and iOS testing on macOS remain outstanding.
 
 ## Text-only pull-request transport
 
@@ -73,3 +73,30 @@ now refers to that drawable. The wrapper JAR was removed and ignored; CI and loc
 setup regenerate it with pinned Gradle 8.12 before building. APKs, app bundles, iOS
 archives, and common archive formats are ignored so they cannot reintroduce binary
 artifacts into the pull-request diff.
+
+## Android physical-device prototype update (2026-09-08)
+
+The debug application now accepts a build-time `WEARCAM_BACKEND_URL`, including
+HTTP only in debug mode for trusted LAN or `adb reverse` testing. The debug Android
+manifest explicitly permits cleartext traffic while the main/release manifest
+does not. Missing or unsafe configuration produces an actionable setup screen
+instead of terminating before Flutter renders.
+
+The installed APK never receives the permanent OpenAI API key. It contacts the
+configured WearCam backend, which retains that key server-side and returns only a
+short-lived Realtime client credential. Physical-device instructions and an
+explicit validation gate are in `docs/manual-testing.md` and the root README.
+
+Live end-to-end status remains blocked on external inputs: a server-side OpenAI
+project credential with Realtime access, a backend reachable from the phone, and
+physical validation of Android permissions, camera, microphone, WebRTC audio,
+Bluetooth routing, and Stop looking during a real capture.
+
+Flutter 3.35.2/Dart 3.9.0 and Android SDK 36 were installed for this update. The
+backend check, committed-source Dart format check, Flutter analysis, all 19 mobile
+tests, and an Android debug build completed successfully. The configured prototype
+APK is generated at `mobile/build/app/outputs/flutter-apk/app-debug.apk`; build
+outputs remain ignored and are not committed. This environment's proxy blocks
+JitPack, so the build used the exact AudioSwitch commit source locally while the
+normal CI/developer dependency resolution continues to use the package-declared
+repository.

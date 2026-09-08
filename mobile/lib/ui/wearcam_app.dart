@@ -5,6 +5,37 @@ import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
+final class WearCamConfigurationError extends StatelessWidget {
+  const WearCamConfigurationError({required this.message, super.key});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'WearCam configuration',
+    theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
+    home: Scaffold(
+      appBar: AppBar(title: const Text('WearCam setup required')),
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.settings_ethernet, size: 48),
+            const SizedBox(height: 16),
+            Text(message, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            const SelectableText(
+              'No API key belongs in the app. Configure only the URL of a '
+              'WearCam backend that issues temporary Realtime credentials, '
+              'then rebuild the APK.',
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 final class WearCamApp extends StatelessWidget {
   const WearCamApp({required this.camera, required this.controller, super.key});
   final PhoneCameraSource camera;
@@ -89,8 +120,8 @@ final class _Home extends StatelessWidget {
         FilledButton.icon(
           onPressed:
               controller.connectionState == AIConnectionState.disconnected
-                  ? controller.start
-                  : null,
+              ? controller.start
+              : null,
           icon: const Icon(Icons.play_arrow),
           label: const Text('Start visual conversation'),
         ),
@@ -109,10 +140,7 @@ final class _Home extends StatelessWidget {
           label: const Text('Stop everything'),
         ),
         if (controller.error != null)
-          Text(
-            controller.error!,
-            style: const TextStyle(color: Colors.red),
-          ),
+          Text(controller.error!, style: const TextStyle(color: Colors.red)),
       ],
     ),
   );
