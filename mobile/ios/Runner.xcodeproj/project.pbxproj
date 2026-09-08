@@ -1,0 +1,35 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 54;
+ objects = {
+  00AA0001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00BB0001 /* AppDelegate.swift */; };
+  00AA0002 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 00BB0002 /* LaunchScreen.storyboard */; };
+  00BB0001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+  00BB0002 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+  00BB0003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+  00BB0004 /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+  00CC0001 = {isa = PBXGroup; children = (00CC0002 /* Runner */, 00CC0003 /* Products */); sourceTree = "<group>"; };
+  00CC0002 /* Runner */ = {isa = PBXGroup; path = Runner; sourceTree = "<group>"; children = (00BB0001, 00BB0002, 00BB0003); };
+  00CC0003 /* Products */ = {isa = PBXGroup; name = Products; sourceTree = "<group>"; children = (00BB0004); };
+  00DD0001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (00AA0001); runOnlyForDeploymentPostprocessing = 0; };
+  00DD0002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (00AA0002); runOnlyForDeploymentPostprocessing = 0; };
+  00DD0003 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  00DD0004 /* Run Script */ = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Run Script"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build"; };
+  00DD0005 /* Thin Binary */ = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Thin Binary"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" embed_and_thin"; };
+  00EE0001 /* Runner */ = {isa = PBXNativeTarget; buildConfigurationList = 00FF0002; buildPhases = (00DD0004, 00DD0001, 00DD0003, 00DD0002, 00DD0005); buildRules = (); dependencies = (); name = Runner; productName = Runner; productReference = 00BB0004; productType = "com.apple.product-type.application"; };
+  00EE0002 /* Project object */ = {isa = PBXProject; attributes = {LastSwiftUpdateCheck = 1500; LastUpgradeCheck = 1500; ORGANIZATIONNAME = WearCam; TargetAttributes = {00EE0001 = {CreatedOnToolsVersion = 15.0; }; }; }; buildConfigurationList = 00FF0001; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = 00CC0001; productRefGroup = 00CC0003; projectDirPath = ""; projectRoot = ""; targets = (00EE0001); };
+  00110001 /* Project Debug */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Debug; };
+  00110002 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Release; };
+  00110003 /* Project Profile */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Profile; };
+  00110004 /* Runner Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = 00120001; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)"; ENABLE_BITCODE = NO; INFOPLIST_FILE = Runner/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 13.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.wearcam.bridge; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+  00110005 /* Runner Release */ = {isa = XCBuildConfiguration; baseConfigurationReference = 00120002; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)"; ENABLE_BITCODE = NO; INFOPLIST_FILE = Runner/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 13.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.wearcam.bridge; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+  00110006 /* Runner Profile */ = {isa = XCBuildConfiguration; baseConfigurationReference = 00120002; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)"; ENABLE_BITCODE = NO; INFOPLIST_FILE = Runner/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 13.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.wearcam.bridge; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Profile; };
+  00120001 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
+  00120002 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
+  00FF0001 = {isa = XCConfigurationList; buildConfigurations = (00110001, 00110002, 00110003); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  00FF0002 = {isa = XCConfigurationList; buildConfigurations = (00110004, 00110005, 00110006); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+ };
+ rootObject = 00EE0002;
+}
