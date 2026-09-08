@@ -23,6 +23,7 @@ void main() {
 
       provider.issueToolCall('call-1');
       await provider.completed.first;
+      await controller.activeToolCallCompleted;
       expect(camera.captureCount, 1);
       expect(provider.images, hasLength(1));
       expect(
@@ -32,6 +33,7 @@ void main() {
 
       provider.issueToolCall('call-2');
       await provider.completed.where((id) => id == 'call-2').first;
+      await controller.activeToolCallCompleted;
       expect(camera.captureCount, 2);
       expect(provider.images, hasLength(2));
       expect(
@@ -85,10 +87,10 @@ void main() {
     );
     await controller.start();
     provider.issueToolCall('pending');
-    await Future<void>.delayed(Duration.zero);
+    await camera.captureStarted.future;
     await controller.stopLooking();
     gate.complete();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await controller.activeToolCallCompleted;
     expect(provider.images, isEmpty);
     expect(controller.lastTransmittedFrame, isNull);
     expect(provider.outputs['pending'], {
@@ -96,6 +98,31 @@ void main() {
       'reason': 'visual transmission cancelled',
     });
     controller.dispose();
+  });
+
+  test('disposal during capture prevents notifications and upload', () async {
+    final gate = Completer<void>();
+    final camera = FakeCamera(captureGate: gate.future);
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+    );
+    await controller.start();
+    var notifications = 0;
+    controller.addListener(() => notifications += 1);
+
+    provider.issueToolCall('disposed');
+    await camera.captureStarted.future;
+    final completed = controller.activeToolCallCompleted;
+    final notificationsBeforeDispose = notifications;
+    controller.dispose();
+    gate.complete();
+    await completed;
+
+    expect(provider.images, isEmpty);
+    expect(provider.outputs, isNot(contains('disposed')));
+    expect(notifications, notificationsBeforeDispose);
   });
 }
 
@@ -105,6 +132,7 @@ final class FakeCamera implements CameraSource {
   final _status = StreamController<CameraStatus>.broadcast();
   int captureCount = 0;
   int disconnectCount = 0;
+  final captureStarted = Completer<void>();
   @override
   Stream<CameraStatus> get status => _status.stream;
   @override
@@ -116,6 +144,7 @@ final class FakeCamera implements CameraSource {
   }
   @override
   Future<CameraFrame> capture() async {
+    if (!captureStarted.isCompleted) captureStarted.complete();
     await captureGate;
     captureCount += 1;
     final image = img.Image(width: 20, height: 20)
