@@ -50,6 +50,22 @@ jobs:
         with:
           gradle-version: "8.12"
       - run: flutter doctor -v
+      - name: Generate Flutter 3.35.2 platform baseline
+        run: >-
+          flutter create --platforms=android,ios --org=com.wearcam.template
+          --project-name=wearcam_platform_baseline --no-pub
+          $RUNNER_TEMP/wearcam-platform-baseline
+      - name: Verify reconciled platform files
+        run: |
+          test -f "$RUNNER_TEMP/wearcam-platform-baseline/android/app/src/debug/AndroidManifest.xml"
+          test -f "$RUNNER_TEMP/wearcam-platform-baseline/ios/Flutter/Debug.xcconfig"
+          test -f android/app/src/debug/AndroidManifest.xml
+          test -f android/app/src/profile/AndroidManifest.xml
+          test -f ios/Flutter/Debug.xcconfig
+          test -f ios/Flutter/Profile.xcconfig
+          test -f ios/Flutter/Release.xcconfig
+          grep -q 'applicationId = "com.wearcam.bridge"' android/app/build.gradle.kts
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.wearcam.bridge' ios/Runner.xcodeproj/project.pbxproj
       - run: flutter pub get
       - run: dart format .
       - run: flutter analyze
@@ -57,3 +73,9 @@ jobs:
       - run: gradle wrapper --gradle-version 8.12 --distribution-type all
         working-directory: mobile/android
       - run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: wearcam-android-debug
+          path: mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

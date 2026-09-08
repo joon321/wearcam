@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
+import 'package:wearcam/ai/openai_realtime_protocol.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
 
@@ -21,6 +21,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
   RTCDataChannel? _events;
   MediaStream? _localStream;
   bool _microphoneMuted = false;
+  static const _protocol = OpenAIRealtimeProtocol();
 
   @override
   Stream<AIConnectionState> get connectionStates => _states.stream;
@@ -91,25 +92,12 @@ final class OpenAIRealtimeProvider implements AIProvider {
   }
 
   void _handleEvent(String wire) {
-    final event = jsonDecode(wire);
-    if (event is! Map<String, dynamic>) return;
-    final type = event['type'];
-    if (type == 'response.output_audio_transcript.delta' ||
-        type == 'conversation.item.input_audio_transcription.delta') {
-      final delta = event['delta'];
-      if (delta is String) _transcript.add(delta);
-    }
-    if (type == 'response.function_call_arguments.done' &&
-        event['name'] is String) {
-      final arguments = jsonDecode((event['arguments'] as String?) ?? '{}');
-      _toolCalls.add(
-        ToolCall(
-          name: event['name'] as String,
-          callId: event['call_id'] as String,
-          arguments: arguments is Map<String, dynamic> ? arguments : const {},
-        ),
-      );
-    }
+    final event = _protocol.decodeEvent(wire);
+    if (event == null) return;
+    final delta = _protocol.transcriptDelta(event);
+    if (delta != null) _transcript.add(delta);
+    final toolCall = _protocol.toolCall(event);
+    if (toolCall != null) _toolCalls.add(toolCall);
   }
 
   void _send(Map<String, Object?> event) {
@@ -123,41 +111,13 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   @override
   Future<void> sendText(String text) async {
-    _send({
-      'type': 'conversation.item.create',
-      'item': {
-        'type': 'message',
-        'role': 'user',
-        'content': [
-          {'type': 'input_text', 'text': text},
-        ],
-      },
-    });
-    _send({'type': 'response.create'});
+    _send(_protocol.textMessage(text));
+    _send(OpenAIRealtimeProtocol.responseCreate);
   }
 
   @override
   Future<void> sendImage(PreparedFrame frame, String context) async {
-    final base64Image = base64Encode(frame.jpegBytes);
-    _send({
-      'type': 'conversation.item.create',
-      'item': {
-        'type': 'message',
-        'role': 'user',
-        'content': [
-          {
-            'type': 'input_text',
-            'text':
-                '$context Captured ${frame.capturedAt.toIso8601String()} '
-                'from ${frame.sourceId}.',
-          },
-          {
-            'type': 'input_image',
-            'image_url': 'data:image/jpeg;base64,$base64Image',
-          },
-        ],
-      },
-    });
+    _send(_protocol.imageMessage(frame, context));
   }
 
   @override
@@ -165,15 +125,8 @@ final class OpenAIRealtimeProvider implements AIProvider {
     String callId,
     Map<String, Object?> output,
   ) async {
-    _send({
-      'type': 'conversation.item.create',
-      'item': {
-        'type': 'function_call_output',
-        'call_id': callId,
-        'output': jsonEncode(output),
-      },
-    });
-    _send({'type': 'response.create'});
+    _send(_protocol.functionOutput(callId, output));
+    _send(OpenAIRealtimeProtocol.responseCreate);
   }
 
   @override
@@ -186,7 +139,12 @@ final class OpenAIRealtimeProvider implements AIProvider {
   }
 
   @override
-  Future<void> interrupt() async => _send({'type': 'response.cancel'});
+  Future<void> interrupt() async {
+    _send(OpenAIRealtimeProtocol.responseCancel);
+    // WebRTC can already have buffered audio after cancellation. Clearing the
+    // output buffer makes the user-visible interruption immediate.
+    _send(OpenAIRealtimeProtocol.clearOutputAudio);
+  }
 
   @override
   Future<void> stopSession() async {
