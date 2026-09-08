@@ -5,47 +5,26 @@ import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
-final class WearCamConfigurationError extends StatelessWidget {
-  const WearCamConfigurationError({required this.message, super.key});
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'WearCam configuration',
-    theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
-    home: Scaffold(
-      appBar: AppBar(title: const Text('WearCam setup required')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.settings_ethernet, size: 48),
-            const SizedBox(height: 16),
-            Text(message, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            const SelectableText(
-              'No API key belongs in the app. Configure only the URL of a '
-              'WearCam backend that issues temporary Realtime credentials, '
-              'then rebuild the APK.',
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
 final class WearCamApp extends StatelessWidget {
-  const WearCamApp({required this.camera, required this.controller, super.key});
+  const WearCamApp({
+    required this.camera,
+    required this.controller,
+    required this.onChangeBackend,
+    super.key,
+  });
   final PhoneCameraSource camera;
   final ConversationController controller;
+  final Future<void> Function() onChangeBackend;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'WearCam',
     theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
-    home: WearCamHome(camera: camera, controller: controller),
+    home: WearCamHome(
+      camera: camera,
+      controller: controller,
+      onChangeBackend: onChangeBackend,
+    ),
   );
 }
 
@@ -53,10 +32,12 @@ final class WearCamHome extends StatefulWidget {
   const WearCamHome({
     required this.camera,
     required this.controller,
+    required this.onChangeBackend,
     super.key,
   });
   final PhoneCameraSource camera;
   final ConversationController controller;
+  final Future<void> Function() onChangeBackend;
 
   @override
   State<WearCamHome> createState() => _WearCamHomeState();
@@ -71,7 +52,7 @@ final class _WearCamHomeState extends State<WearCamHome> {
       _Home(controller: widget.controller),
       _Camera(camera: widget.camera),
       _Conversation(controller: widget.controller),
-      const _Settings(),
+      _Settings(onChangeBackend: widget.onChangeBackend),
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('WearCam Bridge')),
@@ -233,18 +214,33 @@ final class _Conversation extends StatelessWidget {
 }
 
 final class _Settings extends StatelessWidget {
-  const _Settings();
+  const _Settings({required this.onChangeBackend});
+  final Future<void> Function() onChangeBackend;
+
   @override
   Widget build(BuildContext context) => ListView(
-    children: const [
-      ListTile(title: Text('Provider'), subtitle: Text('OpenAI Realtime')),
-      ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
-      ListTile(title: Text('Long edge'), subtitle: Text('1280 px maximum')),
+    children: [
+      const ListTile(
+        title: Text('Provider'),
+        subtitle: Text('OpenAI Realtime'),
+      ),
       ListTile(
+        key: const Key('change-backend-action'),
+        leading: const Icon(Icons.settings_ethernet),
+        title: const Text('Change backend'),
+        subtitle: const Text('Update the saved WearCam backend URL'),
+        onTap: onChangeBackend,
+      ),
+      const ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
+      const ListTile(
+        title: Text('Long edge'),
+        subtitle: Text('1280 px maximum'),
+      ),
+      const ListTile(
         title: Text('Retention'),
         subtitle: Text('In memory until session stop'),
       ),
-      ListTile(
+      const ListTile(
         title: Text('Guidance'),
         subtitle: Text('Planned for Milestone 3'),
       ),

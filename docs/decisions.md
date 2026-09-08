@@ -1,5 +1,19 @@
 # Engineering decisions and assumptions
 
+## Runtime backend configuration
+
+- The mobile app stores only the WearCam backend base URL in platform-local
+  preferences. It never asks for or persists a permanent provider credential.
+- Resolution order is a locally saved URL first, then the optional
+  `WEARCAM_BACKEND_URL` dart define. With neither, setup is mandatory before the
+  camera, microphone, or provider runtime is constructed.
+- HTTP is accepted only when Flutter is running in debug mode. Release and profile
+  configurations require HTTPS; Android cleartext access remains isolated to the
+  debug manifest.
+- Changing the backend stops the active conversation and disconnects media before
+  returning to setup, preserving the existing Stop Looking and session privacy
+  boundaries.
+
 ## OpenAI Realtime transport
 
 The app uses WebRTC because it provides microphone capture, remote audio playback,

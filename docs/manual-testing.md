@@ -4,15 +4,24 @@ Run every case on at least one current Android phone and one iPhone.
 
 ## Android setup gate
 
-1. Build and install the debug APK using the backend URL and commands in the root
-   README. Record the exact URL (without secrets), device model, Android version,
-   APK commit, and whether the connection uses HTTPS, local Wi-Fi, or `adb reverse`.
+1. Build and install the debug APK using the commands in the root README. If no
+   dart-define fallback is provided, confirm the setup screen appears. Enter the
+   backend URL (without secrets), then relaunch and confirm the app remembers it.
+   Record the URL, device model, Android version, APK commit, and whether the
+   connection uses HTTPS, local Wi-Fi, or `adb reverse`.
 2. Confirm the backend has `OPENAI_API_KEY` in its server-only environment and
    `GET /health` succeeds from the phone. Do not record the key or temporary
    credential. A live session additionally requires an OpenAI project authorized
    for the configured Realtime model.
 3. Confirm Android Settings lists Camera and Microphone permissions for WearCam.
    Start with both ungranted so the permission flow is exercised.
+4. Open Settings → Change backend, confirm the current URL is prefilled, save a
+   replacement, and verify the next session uses it. Confirm a saved URL takes
+   precedence over any `WEARCAM_BACKEND_URL` build fallback.
+5. In a debug build, verify a reachable local HTTP URL is accepted. In a profile
+   or release build, verify HTTP is rejected and HTTPS remains accepted.
+6. Paste a provider key-shaped value and a URL containing user credentials into
+   setup. Confirm neither can be saved. Do not use or record a real credential.
 
 ## Session cases
 
