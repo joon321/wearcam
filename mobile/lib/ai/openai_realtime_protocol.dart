@@ -17,48 +17,48 @@ final class OpenAIRealtimeProtocol {
   }
 
   Map<String, Object?> textMessage(String text) => {
-        'type': 'conversation.item.create',
-        'item': {
-          'type': 'message',
-          'role': 'user',
-          'content': [
-            {'type': 'input_text', 'text': text},
-          ],
-        },
-      };
+    'type': 'conversation.item.create',
+    'item': {
+      'type': 'message',
+      'role': 'user',
+      'content': [
+        {'type': 'input_text', 'text': text},
+      ],
+    },
+  };
 
   Map<String, Object?> imageMessage(PreparedFrame frame, String context) => {
-        'type': 'conversation.item.create',
-        'item': {
-          'type': 'message',
-          'role': 'user',
-          'content': [
-            {
-              'type': 'input_text',
-              'text': '$context Captured ${frame.capturedAt.toIso8601String()} '
-                  'from ${frame.sourceId}.',
-            },
-            {
-              'type': 'input_image',
-              'image_url':
-                  'data:image/jpeg;base64,${base64Encode(frame.jpegBytes)}',
-            },
-          ],
+    'type': 'conversation.item.create',
+    'item': {
+      'type': 'message',
+      'role': 'user',
+      'content': [
+        {
+          'type': 'input_text',
+          'text':
+              '$context Captured ${frame.capturedAt.toIso8601String()} '
+              'from ${frame.sourceId}.',
         },
-      };
+        {
+          'type': 'input_image',
+          'image_url':
+              'data:image/jpeg;base64,${base64Encode(frame.jpegBytes)}',
+        },
+      ],
+    },
+  };
 
   Map<String, Object?> functionOutput(
     String callId,
     Map<String, Object?> output,
-  ) =>
-      {
-        'type': 'conversation.item.create',
-        'item': {
-          'type': 'function_call_output',
-          'call_id': callId,
-          'output': jsonEncode(output),
-        },
-      };
+  ) => {
+    'type': 'conversation.item.create',
+    'item': {
+      'type': 'function_call_output',
+      'call_id': callId,
+      'output': jsonEncode(output),
+    },
+  };
 
   ToolCall? toolCall(Map<String, dynamic> event) {
     if (event['type'] != 'response.function_call_arguments.done') return null;

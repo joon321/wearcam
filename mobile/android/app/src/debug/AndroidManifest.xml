@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- INTERNET is needed by the Flutter development tool for debugging. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Debug builds may reach a backend on the phone's local network. Release
+         builds retain Android's default cleartext prohibition and require TLS. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

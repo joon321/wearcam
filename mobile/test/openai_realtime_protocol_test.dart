@@ -36,13 +36,11 @@ void main() {
     expect(content, [
       {
         'type': 'input_text',
-        'text': 'Fresh view. Captured 2026-09-08T12:30:00.000Z '
+        'text':
+            'Fresh view. Captured 2026-09-08T12:30:00.000Z '
             'from phone-rear.',
       },
-      {
-        'type': 'input_image',
-        'image_url': 'data:image/jpeg;base64,/9j/',
-      },
+      {'type': 'input_image', 'image_url': 'data:image/jpeg;base64,/9j/'},
     ]);
   });
 

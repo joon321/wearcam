@@ -37,9 +37,7 @@ void main() {
       expect(camera.captureCount, 2);
       expect(provider.images, hasLength(2));
       expect(
-        provider.images[1].capturedAt.isAfter(
-          provider.images[0].capturedAt,
-        ),
+        provider.images[1].capturedAt.isAfter(provider.images[0].capturedAt),
         isTrue,
       );
       controller.dispose();
@@ -142,6 +140,7 @@ final class FakeCamera implements CameraSource {
     disconnectCount += 1;
     _status.add(CameraStatus.disconnected);
   }
+
   @override
   Future<CameraFrame> capture() async {
     if (!captureStarted.isCompleted) captureStarted.complete();
@@ -188,6 +187,7 @@ final class FakeProvider implements AIProvider {
     if (failStart) throw StateError('provider startup failed');
     _states.add(AIConnectionState.connected);
   }
+
   @override
   Future<void> stopSession() async =>
       _states.add(AIConnectionState.disconnected);
@@ -202,6 +202,7 @@ final class FakeProvider implements AIProvider {
     outputs[callId] = output;
     _completed.add(callId);
   }
+
   @override
   Future<void> interrupt() async {}
   @override

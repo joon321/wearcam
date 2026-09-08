@@ -28,10 +28,9 @@ npm install
 npm run dev
 ```
 
-The service listens on `http://127.0.0.1:8787` by default. Expose it through a
-development TLS proxy or tunnel before starting the mobile app: WearCam requires
-`WEARCAM_BACKEND_URL` to be an HTTPS URL reachable from the device. Never embed a
-permanent provider credential in that URL or in the mobile configuration.
+The service listens on all interfaces on port `8787`. Keep `OPENAI_API_KEY` only in
+the backend environment. Each session asks this service for a short-lived Realtime
+credential; the APK contains only the backend URL.
 
 ## Mobile setup
 
@@ -57,6 +56,48 @@ not an application source artifact.
 Grant camera and microphone permission when prompted. Pair Bluetooth earbuds in
 the operating system before starting a conversation; audio routing is owned by the
 OS/WebRTC stack.
+
+## Install an Android debug prototype
+
+Prefer an HTTPS backend deployed to a URL the phone can reach:
+
+```sh
+cd mobile
+flutter build apk --debug \
+  --dart-define=WEARCAM_BACKEND_URL=https://your-backend.example
+adb install -r build/app/outputs/flutter-apk/app-debug.apk
+```
+
+For local Wi-Fi testing, start the backend with the phone and computer on the same
+trusted network, allow inbound TCP port `8787` in the computer firewall, and use
+the computer's LAN address (not `localhost`):
+
+```sh
+cd backend
+OPENAI_API_KEY='<server-only key>' npm run dev
+# In another shell; replace the example address with the computer's LAN address.
+cd ../mobile
+flutter build apk --debug \
+  --dart-define=WEARCAM_BACKEND_URL=http://192.168.1.20:8787
+adb install -r build/app/outputs/flutter-apk/app-debug.apk
+```
+
+Cleartext HTTP is enabled only by the Android debug manifest for this local test
+case; release builds still require HTTPS. Verify `http://<LAN-IP>:8787/health` from
+the phone browser before opening WearCam. USB testing can instead use
+`adb reverse tcp:8787 tcp:8787` and a debug APK built with
+`WEARCAM_BACKEND_URL=http://127.0.0.1:8787`; the reverse must be recreated after
+disconnecting USB or restarting ADB.
+
+At first start, Android asks for camera access when the camera connects and
+microphone access when WebRTC starts. Grant both while using the app. If denied
+permanently, enable **Camera** and **Microphone** under Android Settings → Apps →
+WearCam → Permissions. The app does not request local-network discovery access;
+it makes a normal Internet connection to the configured backend.
+
+An APK built without a valid backend URL displays a setup message instead of
+crashing, but cannot start a session. Rebuild it to change the URL. Never pass
+`OPENAI_API_KEY` through `--dart-define`.
 
 ## Verification
 
