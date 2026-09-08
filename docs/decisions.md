@@ -14,6 +14,15 @@
   returning to setup, preserving the existing Stop Looking and session privacy
   boundaries.
 
+## Native WebRTC shutdown
+
+- WebRTC teardown is single-flight at both the conversation and provider layers.
+  Native stream, data-channel, and peer references are detached before the first
+  asynchronous close, so startup failure, repeated Stop Everything actions, and
+  widget disposal cannot close the same native object concurrently.
+- `flutter_webrtc` is pinned to 1.6.2, which uses the current libwebrtc engine
+  instead of the older engine observed aborting its network thread on Android 16.
+
 ## OpenAI Realtime transport
 
 The app uses WebRTC because it provides microphone capture, remote audio playback,

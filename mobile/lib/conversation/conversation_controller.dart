@@ -47,6 +47,7 @@ final class ConversationController extends ChangeNotifier {
   bool _disposed = false;
   int _privacyGeneration = 0;
   Completer<void>? _activeToolCall;
+  Future<void>? _stopInProgress;
 
   Future<void> get activeToolCallCompleted =>
       _activeToolCall?.future ?? Future<void>.value();
@@ -149,7 +150,17 @@ final class ConversationController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  Future<void> stopEverything() async {
+  Future<void> stopEverything() {
+    final existing = _stopInProgress;
+    if (existing != null) return existing;
+    final stopping = _stopEverything();
+    _stopInProgress = stopping;
+    return stopping.whenComplete(() {
+      if (identical(_stopInProgress, stopping)) _stopInProgress = null;
+    });
+  }
+
+  Future<void> _stopEverything() async {
     _privacyGeneration += 1;
     visionModes.onSessionClosed();
     lastTransmittedFrame = null;

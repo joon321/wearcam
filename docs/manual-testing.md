@@ -43,6 +43,9 @@ Run every case on at least one current Android phone and one iPhone.
 11. Exercise manual/current-view capture, automatic model-requested capture, and
     Stop looking. Confirm Stop looking wins over an in-flight capture and prevents
     every later transmission until visual mode is explicitly enabled again.
+12. While a session is connecting and while one is connected, rapidly tap Stop
+    Everything or change the backend. Confirm WearCam returns to a stable stopped
+    or setup state without a native crash, including on Android 16 devices.
 
 ## Known external validation gates
 

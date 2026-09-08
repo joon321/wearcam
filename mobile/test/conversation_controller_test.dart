@@ -122,6 +122,28 @@ void main() {
     expect(provider.outputs, isNot(contains('disposed')));
     expect(notifications, notificationsBeforeDispose);
   });
+
+  test('concurrent stop requests tear down provider and camera once', () async {
+    final stopGate = Completer<void>();
+    final camera = FakeCamera();
+    final provider = FakeProvider(stopGate: stopGate.future);
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+    );
+    await controller.start();
+
+    final firstStop = controller.stopEverything();
+    final secondStop = controller.stopEverything();
+    expect(provider.stopCount, 1);
+    stopGate.complete();
+    await Future.wait([firstStop, secondStop]);
+
+    expect(provider.stopCount, 1);
+    expect(camera.disconnectCount, 1);
+    expect(controller.visionModes.mode, VisionMode.off);
+    controller.dispose();
+  });
 }
 
 final class FakeCamera implements CameraSource {
@@ -163,15 +185,17 @@ final class FakeCamera implements CameraSource {
 }
 
 final class FakeProvider implements AIProvider {
-  FakeProvider({this.failStart = false});
+  FakeProvider({this.failStart = false, this.stopGate});
 
   final bool failStart;
+  final Future<void>? stopGate;
   final _states = StreamController<AIConnectionState>.broadcast();
   final _transcript = StreamController<String>.broadcast();
   final _tools = StreamController<ToolCall>.broadcast();
   final _completed = StreamController<String>.broadcast();
   final images = <PreparedFrame>[];
   final outputs = <String, Map<String, Object?>>{};
+  int stopCount = 0;
   Stream<String> get completed => _completed.stream;
   void issueToolCall(String id) => _tools.add(
     ToolCall(name: 'get_current_view', callId: id, arguments: const {}),
@@ -189,8 +213,12 @@ final class FakeProvider implements AIProvider {
   }
 
   @override
-  Future<void> stopSession() async =>
-      _states.add(AIConnectionState.disconnected);
+  Future<void> stopSession() async {
+    stopCount += 1;
+    await stopGate;
+    _states.add(AIConnectionState.disconnected);
+  }
+
   @override
   Future<void> sendImage(PreparedFrame frame, String context) async =>
       images.add(frame);

@@ -273,6 +273,7 @@ final class _WearCamRuntime extends StatefulWidget {
 final class _WearCamRuntimeState extends State<_WearCamRuntime> {
   late final PhoneCameraSource _camera;
   late final ConversationController _controller;
+  Future<void>? _shutdownFuture;
 
   @override
   void initState() {
@@ -285,13 +286,15 @@ final class _WearCamRuntimeState extends State<_WearCamRuntime> {
   }
 
   Future<void> _changeBackend() async {
-    await _controller.stopEverything();
+    await _shutdown();
     await widget.changeBackend();
   }
 
+  Future<void> _shutdown() => _shutdownFuture ??= _controller.stopEverything();
+
   @override
   void dispose() {
-    unawaited(_controller.stopEverything());
+    unawaited(_shutdown());
     _controller.dispose();
     super.dispose();
   }

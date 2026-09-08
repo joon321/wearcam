@@ -21,6 +21,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
   RTCDataChannel? _events;
   MediaStream? _localStream;
   bool _microphoneMuted = false;
+  Future<void>? _stopInProgress;
   static const _protocol = OpenAIRealtimeProtocol();
 
   @override
@@ -147,16 +148,33 @@ final class OpenAIRealtimeProvider implements AIProvider {
   }
 
   @override
-  Future<void> stopSession() async {
-    for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+  Future<void> stopSession() {
+    final existing = _stopInProgress;
+    if (existing != null) return existing;
+    final stopping = _stopSession();
+    _stopInProgress = stopping;
+    return stopping.whenComplete(() {
+      if (identical(_stopInProgress, stopping)) _stopInProgress = null;
+    });
+  }
+
+  Future<void> _stopSession() async {
+    // Detach native resources before awaiting teardown. A second stop can be
+    // requested by widget disposal, startup failure, or a repeated user action;
+    // it must never close the same WebRTC object twice.
+    final localStream = _localStream;
+    final events = _events;
+    final peer = _peer;
+    _localStream = null;
+    _events = null;
+    _peer = null;
+
+    for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
       await track.stop();
     }
-    await _localStream?.dispose();
-    _localStream = null;
-    await _events?.close();
-    _events = null;
-    await _peer?.close();
-    _peer = null;
+    await localStream?.dispose();
+    await events?.close();
+    await peer?.close();
     _states.add(AIConnectionState.disconnected);
   }
 }
