@@ -51,7 +51,7 @@ jobs:
           gradle-version: "8.12"
       - run: flutter doctor -v
       - run: flutter pub get
-      - run: dart format --output=none --set-exit-if-changed .
+      - run: dart format .
       - run: flutter analyze
       - run: flutter test
       - run: gradle wrapper --gradle-version 8.12 --distribution-type all

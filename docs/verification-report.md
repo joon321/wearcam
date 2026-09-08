@@ -34,11 +34,11 @@ that they are legitimate generated output.
 
 ## CI
 
-GitHub Actions ran the mobile job with Flutter 3.35.2. `flutter analyze`, all
-Flutter tests, and `flutter build apk --debug` passed. The formatter had temporarily
-been allowed to modify CI's checkout so those later checks could run; the workflow
-now restores the required non-mutating formatting check. GitHub Actions is the
-authoritative validation for the manually formatted committed Dart sources.
+GitHub Actions runs `dart format .` on its temporary checkout before validation.
+With that formatting applied, `flutter analyze`, all Flutter tests, and
+`flutter build apk --debug` passed using Flutter 3.35.2. Strict committed-source
+formatting enforcement remains outstanding; this result does not establish that
+the checked-in Dart files pass `dart format --output=none --set-exit-if-changed .`.
 
 These automated results do not verify physical-device behavior or the OpenAI
 Realtime protocol. Physical Android and iPhone tests remain outstanding, and the
