@@ -109,8 +109,10 @@ disconnecting USB or restarting ADB.
 At first start, Android asks for camera access when the camera connects and
 microphone access when WebRTC starts. Grant both while using the app. If denied
 permanently, enable **Camera** and **Microphone** under Android Settings → Apps →
-WearCam → Permissions. The app does not request local-network discovery access;
-it makes a normal Internet connection to the configured backend.
+WearCam → Permissions. WebRTC also receives normal install-time permissions to
+read network connectivity, request network changes, and control call audio. These
+do not show runtime prompts and do not grant nearby-device discovery; the app makes
+a normal Internet connection to the configured backend.
 
 An APK built without a backend URL opens the in-app setup screen instead of
 crashing. Use **Settings → Change backend** rather than rebuilding to update it.

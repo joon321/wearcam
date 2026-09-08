@@ -20,8 +20,10 @@
   Native stream, data-channel, and peer references are detached before the first
   asynchronous close, so startup failure, repeated Stop Everything actions, and
   widget disposal cannot close the same native object concurrently.
-- `flutter_webrtc` is pinned to 1.6.2, which uses the current libwebrtc engine
-  instead of the older engine observed aborting its network thread on Android 16.
+- `flutter_webrtc` is pinned to 1.6.2. The second supplied tombstone's native
+  build ID confirms that engine was installed, so upgrading alone did not fix the
+  crash. The app manifest now declares the plugin's required network-state,
+  network-change, and audio-settings permissions before native WebRTC starts.
 
 ## OpenAI Realtime transport
 
