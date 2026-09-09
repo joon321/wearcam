@@ -160,3 +160,26 @@ test("logs only safe request metadata after the response", async () => {
     await once(server, "close");
   }
 });
+
+test("contains request logger failures after completing a response", async () => {
+  const server = createApp(config, {
+    fetch: async () => {
+      throw new Error("must not run");
+    },
+    requestLog: () => {
+      throw new Error("logger failed");
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: "ok" });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});

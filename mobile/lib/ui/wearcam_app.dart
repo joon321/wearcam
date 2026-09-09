@@ -112,7 +112,8 @@ final class _Home extends StatelessWidget {
         ),
         FilledButton.icon(
           onPressed:
-              controller.connectionState == AIConnectionState.disconnected
+              controller.connectionState == AIConnectionState.disconnected &&
+                  !controller.isStarting
               ? controller.start
               : null,
           icon: const Icon(Icons.play_arrow),
@@ -140,7 +141,7 @@ final class _Home extends StatelessWidget {
             children: [
               FilledButton.tonal(
                 key: const Key('retry-connection'),
-                onPressed: controller.start,
+                onPressed: controller.isStarting ? null : controller.start,
                 child: const Text('Retry'),
               ),
               OutlinedButton(

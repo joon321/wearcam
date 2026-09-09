@@ -16,7 +16,9 @@ abstract interface class RealtimeConnection {
 }
 
 final class WebRtcRealtimeConnection implements RealtimeConnection {
-  WebRtcRealtimeConnection({required this.onMessage});
+  WebRtcRealtimeConnection({required this.onMessage}) {
+    unawaited(_connected.future.catchError((Object _) {}));
+  }
 
   final void Function(String message) onMessage;
   RTCPeerConnection? _peer;

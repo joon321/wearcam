@@ -75,7 +75,7 @@ void main() {
               'stage',
               ConnectionStage.requestTemporaryCredentials,
             )
-            .having((error) => error.message, 'message', contains('timed out')),
+            .having((error) => error.message, 'message', contains('5 ms')),
       ),
     );
   });
@@ -138,11 +138,13 @@ void main() {
     await expectLater(
       provider.startSession(),
       throwsA(
-        isA<ProviderConnectionException>().having(
-          (error) => error.stage,
-          'stage',
-          ConnectionStage.exchangeSdp,
-        ),
+        isA<ProviderConnectionException>()
+            .having(
+              (error) => error.stage,
+              'stage',
+              ConnectionStage.exchangeSdp,
+            )
+            .having((error) => error.message, 'message', contains('5 ms')),
       ),
     );
 
@@ -168,11 +170,13 @@ void main() {
     await expectLater(
       provider.startSession(),
       throwsA(
-        isA<ProviderConnectionException>().having(
-          (error) => error.stage,
-          'stage',
-          ConnectionStage.waitForConnectedState,
-        ),
+        isA<ProviderConnectionException>()
+            .having(
+              (error) => error.stage,
+              'stage',
+              ConnectionStage.waitForConnectedState,
+            )
+            .having((error) => error.message, 'message', contains('5 ms')),
       ),
     );
   });

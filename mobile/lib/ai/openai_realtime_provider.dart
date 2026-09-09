@@ -59,7 +59,9 @@ final class OpenAIRealtimeProvider implements AIProvider {
         overallTimeout,
         onTimeout: () => throw ProviderConnectionException(
           stage: _stage,
-          message: 'Overall connection timed out after 30 seconds.',
+          message:
+              'Overall connection timed out after '
+              '${overallTimeout.inMilliseconds} ms.',
         ),
       );
       _states.add(AIConnectionState.connected);
@@ -132,7 +134,9 @@ final class OpenAIRealtimeProvider implements AIProvider {
     } on TimeoutException {
       throw ProviderConnectionException(
         stage: _stage,
-        message: 'Backend credential request timed out after 10 seconds.',
+        message:
+            'Backend credential request timed out after '
+            '${credentialTimeout.inMilliseconds} ms.',
       );
     }
     final responseData = _jsonObject(response.body);
@@ -176,7 +180,9 @@ final class OpenAIRealtimeProvider implements AIProvider {
     } on TimeoutException {
       throw ProviderConnectionException(
         stage: _stage,
-        message: 'OpenAI SDP exchange timed out after 15 seconds.',
+        message:
+            'OpenAI SDP exchange timed out after '
+            '${sdpTimeout.inMilliseconds} ms.',
       );
     }
     final requestId = sanitizeRequestId(response.headers['x-request-id']);

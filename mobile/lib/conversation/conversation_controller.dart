@@ -56,12 +56,30 @@ final class ConversationController extends ChangeNotifier {
   int _privacyGeneration = 0;
   Completer<void>? _activeToolCall;
   Future<void>? _stopInProgress;
+  Future<void>? _startInProgress;
+
+  bool get isStarting => _startInProgress != null;
 
   Future<void> get activeToolCallCompleted =>
       _activeToolCall?.future ?? Future<void>.value();
 
-  Future<void> start() async {
-    error = null;
+  Future<void> start() {
+    final existing = _startInProgress;
+    if (existing != null) return existing;
+    final starting = _start();
+    late final Future<void> tracked;
+    tracked = starting.whenComplete(() {
+      if (identical(_startInProgress, tracked)) {
+        _startInProgress = null;
+        if (!_disposed) notifyListeners();
+      }
+    });
+    _startInProgress = tracked;
+    notifyListeners();
+    return tracked;
+  }
+
+  Future<void> _start() async {
     _transcriptTurns.clear();
     notifyListeners();
     await camera.connect();
@@ -72,7 +90,15 @@ final class ConversationController extends ChangeNotifier {
     try {
       await provider.startSession();
     } on ProviderConnectionException catch (failure) {
-      await camera.disconnect();
+      try {
+        await camera.disconnect();
+      } catch (cleanupError) {
+        diagnostics.record(
+          failure.stage,
+          'camera_cleanup_failed',
+          message: 'Camera cleanup failed (${cleanupError.runtimeType}).',
+        );
+      }
       error = failure.displayMessage;
       connectionState = AIConnectionState.disconnected;
       notifyListeners();
@@ -85,6 +111,7 @@ final class ConversationController extends ChangeNotifier {
       return;
     }
     if (_disposed) return;
+    error = null;
     visionModes.startConversation();
     notifyListeners();
   }

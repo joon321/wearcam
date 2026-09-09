@@ -82,6 +82,46 @@ void main() {
     controller.dispose();
   });
 
+  test('preserves provider failure when camera cleanup also fails', () async {
+    final diagnostics = ConnectionDiagnostics(backendHost: 'safe.example');
+    final controller = ConversationController(
+      camera: FakeCamera(failDisconnect: true),
+      provider: FakeProvider(failWithProviderException: true),
+      diagnostics: diagnostics,
+    );
+
+    await controller.start();
+
+    expect(controller.error, contains('request_temporary_credentials'));
+    expect(controller.connectionState, AIConnectionState.disconnected);
+    expect(diagnostics.entries.single.status, 'camera_cleanup_failed');
+    controller.dispose();
+  });
+
+  test('concurrent starts share one camera and provider startup', () async {
+    final connectGate = Completer<void>();
+    final camera = FakeCamera(connectGate: connectGate.future);
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+    );
+
+    final first = controller.start();
+    final second = controller.start();
+
+    expect(identical(first, second), isTrue);
+    expect(controller.isStarting, isTrue);
+    expect(camera.connectCount, 1);
+    expect(provider.startCount, 0);
+    connectGate.complete();
+    await Future.wait([first, second]);
+
+    expect(provider.startCount, 1);
+    expect(controller.isStarting, isFalse);
+    controller.dispose();
+  });
+
   test('Stop looking during capture prevents pending transmission', () async {
     final gate = Completer<void>();
     final camera = FakeCamera(captureGate: gate.future);
@@ -333,22 +373,64 @@ void main() {
     expect(find.byKey(const Key('streaming-turn-status')), findsOneWidget);
     controller.dispose();
   });
+
+  testWidgets('disables Retry while a retry is pending', (tester) async {
+    final provider = FakeProvider(failStart: true);
+    final diagnostics = ConnectionDiagnostics(backendHost: 'safe.example');
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+      diagnostics: diagnostics,
+    );
+    await controller.start();
+    await tester.pumpWidget(
+      WearCamApp(
+        camera: PhoneCameraSource(),
+        controller: controller,
+        diagnostics: diagnostics,
+        onChangeBackend: () async {},
+      ),
+    );
+    final retryGate = Completer<void>();
+    provider.failStart = false;
+    provider.startGate = retryGate.future;
+
+    await tester.tap(find.byKey(const Key('retry-connection')));
+    await tester.pump();
+
+    final retry = tester.widget<FilledButton>(
+      find.byKey(const Key('retry-connection')),
+    );
+    expect(retry.onPressed, isNull);
+    retryGate.complete();
+    await tester.pumpAndSettle();
+    controller.dispose();
+  });
 }
 
 final class FakeCamera implements CameraSource {
-  FakeCamera({this.captureGate});
+  FakeCamera({this.captureGate, this.connectGate, this.failDisconnect = false});
   final Future<void>? captureGate;
+  final Future<void>? connectGate;
+  final bool failDisconnect;
   final _status = StreamController<CameraStatus>.broadcast();
   int captureCount = 0;
+  int connectCount = 0;
   int disconnectCount = 0;
   final captureStarted = Completer<void>();
   @override
   Stream<CameraStatus> get status => _status.stream;
   @override
-  Future<void> connect() async => _status.add(CameraStatus.connected);
+  Future<void> connect() async {
+    connectCount += 1;
+    await connectGate;
+    _status.add(CameraStatus.connected);
+  }
+
   @override
   Future<void> disconnect() async {
     disconnectCount += 1;
+    if (failDisconnect) throw StateError('camera disconnect failed');
     _status.add(CameraStatus.disconnected);
   }
 
@@ -374,10 +456,16 @@ final class FakeCamera implements CameraSource {
 }
 
 final class FakeProvider implements AIProvider {
-  FakeProvider({this.failStart = false, this.stopGate});
+  FakeProvider({
+    this.failStart = false,
+    this.failWithProviderException = false,
+    this.stopGate,
+  });
 
-  final bool failStart;
+  bool failStart;
+  final bool failWithProviderException;
   final Future<void>? stopGate;
+  Future<void>? startGate;
   final _states = StreamController<AIConnectionState>.broadcast();
   final _transcript = StreamController<TranscriptTurn>.broadcast();
   final _tools = StreamController<ToolCall>.broadcast();
@@ -385,6 +473,7 @@ final class FakeProvider implements AIProvider {
   final images = <PreparedFrame>[];
   final outputs = <String, Map<String, Object?>>{};
   int stopCount = 0;
+  int startCount = 0;
   Stream<String> get completed => _completed.stream;
   void issueToolCall(String id) => _tools.add(
     ToolCall(name: 'get_current_view', callId: id, arguments: const {}),
@@ -398,6 +487,14 @@ final class FakeProvider implements AIProvider {
   Stream<ToolCall> get toolCalls => _tools.stream;
   @override
   Future<void> startSession() async {
+    startCount += 1;
+    await startGate;
+    if (failWithProviderException) {
+      throw const ProviderConnectionException(
+        stage: ConnectionStage.requestTemporaryCredentials,
+        message: 'Backend rejected the credential request.',
+      );
+    }
     if (failStart) throw StateError('provider startup failed');
     _states.add(AIConnectionState.connected);
   }

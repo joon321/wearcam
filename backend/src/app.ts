@@ -62,13 +62,17 @@ export function createApp(
     const path = new URL(request.url ?? "/", "http://localhost").pathname;
     response.setHeader("x-request-id", requestId);
     response.once("finish", () => {
-      requestLog({
-        requestId,
-        method,
-        path,
-        status: response.statusCode,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
+      try {
+        requestLog({
+          requestId,
+          method,
+          path,
+          status: response.statusCode,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+      } catch {
+        // Logging is observational and must never affect request handling.
+      }
     });
     try {
       if (request.method === "OPTIONS") {
