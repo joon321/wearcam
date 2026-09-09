@@ -120,7 +120,12 @@ export function createApp(
             session: {
               type: "realtime",
               model: config.model,
-              audio: { output: { voice: "marin" } },
+              audio: {
+                input: {
+                  transcription: { model: "gpt-4o-mini-transcribe" },
+                },
+                output: { voice: "marin" },
+              },
               instructions: INSTRUCTIONS,
               tools: [
                 {

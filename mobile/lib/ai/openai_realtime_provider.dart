@@ -6,6 +6,7 @@ import 'package:wearcam/ai/openai_realtime_protocol.dart';
 import 'package:wearcam/ai/realtime_connection.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
+import 'package:wearcam/domain/transcript_turn.dart';
 
 final class OpenAIRealtimeProvider implements AIProvider {
   OpenAIRealtimeProvider({
@@ -32,23 +33,26 @@ final class OpenAIRealtimeProvider implements AIProvider {
   final Duration sdpTimeout;
   final Duration overallTimeout;
   final _states = StreamController<AIConnectionState>.broadcast();
-  final _transcript = StreamController<String>.broadcast();
+  final _transcript = StreamController<TranscriptTurn>.broadcast();
   final _toolCalls = StreamController<ToolCall>.broadcast();
   RealtimeConnection? _connection;
   bool _microphoneMuted = false;
   Future<void>? _stopInProgress;
+  final Map<String, TranscriptTurn> _transcriptTurns = {};
+  static const _maximumTranscriptTurns = 100;
   ConnectionStage _stage = ConnectionStage.readBackendConfiguration;
   static const _protocol = OpenAIRealtimeProtocol();
 
   @override
   Stream<AIConnectionState> get connectionStates => _states.stream;
   @override
-  Stream<String> get transcript => _transcript.stream;
+  Stream<TranscriptTurn> get transcript => _transcript.stream;
   @override
   Stream<ToolCall> get toolCalls => _toolCalls.stream;
 
   @override
   Future<void> startSession() async {
+    _transcriptTurns.clear();
     _states.add(AIConnectionState.connecting);
     try {
       await _start().timeout(
@@ -237,10 +241,50 @@ final class OpenAIRealtimeProvider implements AIProvider {
   void _handleEvent(String wire) {
     final event = _protocol.decodeEvent(wire);
     if (event == null) return;
-    final delta = _protocol.transcriptDelta(event);
-    if (delta != null) _transcript.add(delta);
+    for (final transcriptEvent in _protocol.transcriptEvents(event)) {
+      _handleTranscriptEvent(transcriptEvent);
+    }
     final toolCall = _protocol.toolCall(event);
     if (toolCall != null) _toolCalls.add(toolCall);
+  }
+
+  void _handleTranscriptEvent(RealtimeTranscriptEvent event) {
+    final existing = _transcriptTurns[event.turnId];
+    if (existing != null && existing.role != event.role) return;
+    if (existing == null &&
+        _transcriptTurns.length >= _maximumTranscriptTurns) {
+      _transcriptTurns.remove(_transcriptTurns.keys.first);
+    }
+    final current =
+        existing ??
+        TranscriptTurn(
+          id: event.turnId,
+          role: event.role,
+          text: '',
+          status: TranscriptStatus.streaming,
+          createdAt: DateTime.now().toUtc(),
+        );
+    if (current.status != TranscriptStatus.streaming &&
+        event.status == TranscriptStatus.streaming) {
+      return;
+    }
+    final updated = current.copyWith(
+      text: event.completedText ?? '${current.text}${event.delta ?? ''}',
+      status: event.status,
+    );
+    _transcriptTurns[event.turnId] = updated;
+    _transcript.add(updated);
+  }
+
+  void _interruptActiveAssistantTurns() {
+    for (final turn in _transcriptTurns.values.toList(growable: false)) {
+      if (turn.role == TranscriptRole.assistant &&
+          turn.status == TranscriptStatus.streaming) {
+        final interrupted = turn.copyWith(status: TranscriptStatus.interrupted);
+        _transcriptTurns[turn.id] = interrupted;
+        _transcript.add(interrupted);
+      }
+    }
   }
 
   void _send(Map<String, Object?> event) {
@@ -279,6 +323,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   @override
   Future<void> interrupt() async {
+    _interruptActiveAssistantTurns();
     _send(OpenAIRealtimeProtocol.responseCancel);
     // WebRTC can already have buffered audio after cancellation. Clearing the
     // output buffer makes the user-visible interruption immediate.

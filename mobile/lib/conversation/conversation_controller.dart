@@ -6,6 +6,7 @@ import 'package:wearcam/camera/frame_processor.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
+import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
 final class ConversationController extends ChangeNotifier {
@@ -28,9 +29,9 @@ final class ConversationController extends ChangeNotifier {
       }
       notifyListeners();
     });
-    _transcriptSubscription = provider.transcript.listen((delta) {
+    _transcriptSubscription = provider.transcript.listen((turn) {
       if (_disposed) return;
-      transcript += delta;
+      _upsertTranscriptTurn(turn);
       notifyListeners();
     });
   }
@@ -42,10 +43,12 @@ final class ConversationController extends ChangeNotifier {
   final VisionModeController visionModes;
   late final StreamSubscription<ToolCall> _toolSubscription;
   late final StreamSubscription<AIConnectionState> _stateSubscription;
-  late final StreamSubscription<String> _transcriptSubscription;
+  late final StreamSubscription<TranscriptTurn> _transcriptSubscription;
   AIConnectionState connectionState = AIConnectionState.disconnected;
   PreparedFrame? lastTransmittedFrame;
-  String transcript = '';
+  final List<TranscriptTurn> _transcriptTurns = [];
+  List<TranscriptTurn> get transcriptTurns =>
+      List.unmodifiable(_transcriptTurns);
   String? error;
   bool microphoneMuted = false;
   bool _captureInFlight = false;
@@ -59,6 +62,8 @@ final class ConversationController extends ChangeNotifier {
 
   Future<void> start() async {
     error = null;
+    _transcriptTurns.clear();
+    notifyListeners();
     await camera.connect();
     if (_disposed) {
       await camera.disconnect();
@@ -82,6 +87,25 @@ final class ConversationController extends ChangeNotifier {
     if (_disposed) return;
     visionModes.startConversation();
     notifyListeners();
+  }
+
+  void _upsertTranscriptTurn(TranscriptTurn turn) {
+    final index = _transcriptTurns.indexWhere(
+      (existing) => existing.id == turn.id,
+    );
+    if (index >= 0) {
+      _transcriptTurns[index] = turn;
+      return;
+    }
+    final insertionIndex = _transcriptTurns.indexWhere(
+      (existing) => existing.createdAt.isAfter(turn.createdAt),
+    );
+    if (insertionIndex < 0) {
+      _transcriptTurns.add(turn);
+    } else {
+      _transcriptTurns.insert(insertionIndex, turn);
+    }
+    if (_transcriptTurns.length > 100) _transcriptTurns.removeAt(0);
   }
 
   Future<void> _handleToolCall(ToolCall call) async {

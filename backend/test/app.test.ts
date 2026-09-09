@@ -64,7 +64,12 @@ test("returns only the short-lived credential and never the permanent key", asyn
     session: {
       type: "realtime",
       model: "gpt-realtime",
-      audio: { output: { voice: "marin" } },
+      audio: {
+        input: {
+          transcription: { model: "gpt-4o-mini-transcribe" },
+        },
+        output: { voice: "marin" },
+      },
       instructions:
         "You are WearCam, a concise spoken assistant. When the user refers to their current surroundings, says the view changed, or asks a visual question, call get_current_view. Never answer a current visual question from a stale image. Explain that Stop looking immediately disables images.",
       tools: [

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/ai/openai_realtime_provider.dart';
 import 'package:wearcam/ai/realtime_connection.dart';
 import 'package:wearcam/domain/ai_provider.dart';
+import 'package:wearcam/domain/transcript_turn.dart';
 
 void main() {
   test('credential request uses the saved runtime backend endpoint', () async {
@@ -190,6 +192,63 @@ void main() {
     expect(diagnostics.copyText, isNot(contains('bad request')));
   });
 
+  test('streams, completes, and interrupts only the matching turn', () async {
+    late _FakeConnection connection;
+    var requestCount = 0;
+    final provider = OpenAIRealtimeProvider(
+      backendBaseUri: Uri.parse('https://saved.example.test'),
+      httpClient: MockClient((_) async {
+        requestCount += 1;
+        return requestCount == 1
+            ? http.Response('{"value":"temporary"}', 201)
+            : http.Response('answer', 200);
+      }),
+      connectionFactory: (onMessage) =>
+          connection = _FakeConnection(onMessage: onMessage),
+    );
+    final turns = <TranscriptTurn>[];
+    provider.transcript.listen(turns.add);
+    await provider.startSession();
+
+    connection.receive({
+      'type': 'conversation.item.input_audio_transcription.delta',
+      'item_id': 'user-1',
+      'delta': 'What is ',
+    });
+    connection.receive({
+      'type': 'conversation.item.input_audio_transcription.delta',
+      'item_id': 'user-1',
+      'delta': 'this?',
+    });
+    connection.receive({
+      'type': 'conversation.item.input_audio_transcription.completed',
+      'item_id': 'user-1',
+      'transcript': 'What is this?',
+    });
+    connection.receive({
+      'type': 'response.output_audio_transcript.delta',
+      'item_id': 'assistant-1',
+      'delta': 'It is a screen.',
+    });
+    await Future<void>.delayed(Duration.zero);
+    await provider.interrupt();
+    connection.receive({
+      'type': 'response.output_audio_transcript.delta',
+      'item_id': 'assistant-2',
+      'delta': 'You asked another question.',
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    final latestById = <String, TranscriptTurn>{
+      for (final turn in turns) turn.id: turn,
+    };
+    expect(latestById['user-1']!.text, 'What is this?');
+    expect(latestById['user-1']!.status, TranscriptStatus.completed);
+    expect(latestById['assistant-1']!.text, 'It is a screen.');
+    expect(latestById['assistant-1']!.status, TranscriptStatus.interrupted);
+    expect(latestById['assistant-2']!.text, 'You asked another question.');
+  });
+
   test('realtime cleanup continues after an early operation fails', () async {
     final completed = <String>[];
 
@@ -256,11 +315,19 @@ OpenAIRealtimeProvider _provider(
 );
 
 final class _FakeConnection implements RealtimeConnection {
-  _FakeConnection({Future<void>? wait, Future<void> Function()? stop})
-    : wait = wait ?? Future.value(),
-      _stop = stop;
+  _FakeConnection({
+    Future<void>? wait,
+    Future<void> Function()? stop,
+    this.onMessage,
+  }) : wait = wait ?? Future.value(),
+       _stop = stop;
   final Future<void> wait;
   final Future<void> Function()? _stop;
+  final void Function(String)? onMessage;
+
+  void receive(Map<String, Object?> event) {
+    onMessage?.call(jsonEncode(event));
+  }
 
   @override
   Future<void> acquireMicrophone({required bool muted}) async {}

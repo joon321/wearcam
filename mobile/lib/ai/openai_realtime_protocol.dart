@@ -2,6 +2,23 @@ import 'dart:convert';
 
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
+import 'package:wearcam/domain/transcript_turn.dart';
+
+final class RealtimeTranscriptEvent {
+  const RealtimeTranscriptEvent({
+    required this.turnId,
+    required this.role,
+    required this.status,
+    this.delta,
+    this.completedText,
+  });
+
+  final String turnId;
+  final TranscriptRole role;
+  final TranscriptStatus status;
+  final String? delta;
+  final String? completedText;
+}
 
 /// Serialization boundary for the documented OpenAI Realtime wire protocol.
 final class OpenAIRealtimeProtocol {
@@ -77,14 +94,124 @@ final class OpenAIRealtimeProtocol {
     }
   }
 
-  String? transcriptDelta(Map<String, dynamic> event) {
-    const transcriptEvents = {
-      'response.output_audio_transcript.delta',
-      'conversation.item.input_audio_transcription.delta',
+  List<RealtimeTranscriptEvent> transcriptEvents(Map<String, dynamic> event) {
+    final type = event['type'];
+    final itemId = event['item_id'];
+    if (itemId is String && itemId.isNotEmpty) {
+      if (type == 'conversation.item.input_audio_transcription.delta' &&
+          event['delta'] is String) {
+        return [
+          RealtimeTranscriptEvent(
+            turnId: itemId,
+            role: TranscriptRole.user,
+            status: TranscriptStatus.streaming,
+            delta: event['delta'] as String,
+          ),
+        ];
+      }
+      if (type == 'conversation.item.input_audio_transcription.completed') {
+        return [
+          RealtimeTranscriptEvent(
+            turnId: itemId,
+            role: TranscriptRole.user,
+            status: TranscriptStatus.completed,
+            completedText: event['transcript'] is String
+                ? event['transcript'] as String
+                : null,
+          ),
+        ];
+      }
+      if (type == 'response.output_audio_transcript.delta' &&
+          event['delta'] is String) {
+        return [
+          RealtimeTranscriptEvent(
+            turnId: itemId,
+            role: TranscriptRole.assistant,
+            status: TranscriptStatus.streaming,
+            delta: event['delta'] as String,
+          ),
+        ];
+      }
+      if (type == 'response.output_audio_transcript.done') {
+        return [
+          RealtimeTranscriptEvent(
+            turnId: itemId,
+            role: TranscriptRole.assistant,
+            status: TranscriptStatus.completed,
+            completedText: event['transcript'] is String
+                ? event['transcript'] as String
+                : null,
+          ),
+        ];
+      }
+      if (type == 'conversation.item.truncated') {
+        return [
+          RealtimeTranscriptEvent(
+            turnId: itemId,
+            role: TranscriptRole.assistant,
+            status: TranscriptStatus.interrupted,
+          ),
+        ];
+      }
+    }
+    if (type == 'conversation.item.created') {
+      return _turnStarted(event['item']);
+    }
+    if (type == 'response.output_item.added') {
+      return _turnStarted(event['item'], assistantOnly: true);
+    }
+    if (type == 'response.done') return _interruptedResponse(event['response']);
+    return const [];
+  }
+
+  List<RealtimeTranscriptEvent> _interruptedResponse(Object? value) {
+    if (value is! Map<String, dynamic> ||
+        (value['status'] != 'cancelled' && value['status'] != 'incomplete') ||
+        value['output'] is! List<Object?>) {
+      return const [];
+    }
+    return [
+      for (final item in value['output'] as List<Object?>)
+        if (item is Map<String, dynamic> &&
+            item['id'] is String &&
+            item['role'] == 'assistant')
+          RealtimeTranscriptEvent(
+            turnId: item['id'] as String,
+            role: TranscriptRole.assistant,
+            status: TranscriptStatus.interrupted,
+          ),
+    ];
+  }
+
+  List<RealtimeTranscriptEvent> _turnStarted(
+    Object? value, {
+    bool assistantOnly = false,
+  }) {
+    if (value is! Map<String, dynamic> || value['id'] is! String) {
+      return const [];
+    }
+    final role = switch (value['role']) {
+      'user' when !assistantOnly && _containsAudio(value, 'input_audio') =>
+        TranscriptRole.user,
+      'assistant' => TranscriptRole.assistant,
+      _ => null,
     };
-    return transcriptEvents.contains(event['type']) && event['delta'] is String
-        ? event['delta'] as String
-        : null;
+    if (role == null) return const [];
+    return [
+      RealtimeTranscriptEvent(
+        turnId: value['id'] as String,
+        role: role,
+        status: TranscriptStatus.streaming,
+      ),
+    ];
+  }
+
+  bool _containsAudio(Map<String, dynamic> item, String type) {
+    final content = item['content'];
+    return content is List<Object?> &&
+        content.any(
+          (part) => part is Map<String, dynamic> && part['type'] == type,
+        );
   }
 
   static const responseCreate = <String, Object?>{'type': 'response.create'};
