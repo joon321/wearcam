@@ -295,8 +295,7 @@ final class _WearCamRuntimeState extends State<_WearCamRuntime> {
   }
 
   Future<void> _changeBackend() async {
-    await _shutdown();
-    await widget.changeBackend();
+    await changeBackendAfterCleanup(_shutdown, widget.changeBackend);
   }
 
   Future<void> _shutdown() => _shutdownFuture ??= _controller.stopEverything();
@@ -315,4 +314,16 @@ final class _WearCamRuntimeState extends State<_WearCamRuntime> {
     diagnostics: _diagnostics,
     onChangeBackend: _changeBackend,
   );
+}
+
+@visibleForTesting
+Future<void> changeBackendAfterCleanup(
+  Future<void> Function() cleanup,
+  Future<void> Function() openSetup,
+) async {
+  try {
+    await cleanup();
+  } finally {
+    await openSetup();
+  }
 }

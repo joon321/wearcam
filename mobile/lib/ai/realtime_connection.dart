@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 abstract interface class RealtimeConnection {
@@ -112,12 +113,33 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
     _localStream = null;
     _events = null;
     _peer = null;
-    for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[]) {
-      await track.stop();
+    await runRealtimeCleanup([
+      for (final track in localStream?.getTracks() ?? <MediaStreamTrack>[])
+        track.stop,
+      if (localStream != null) localStream.dispose,
+      if (events != null) events.close,
+      if (peer != null) peer.close,
+    ]);
+  }
+}
+
+@visibleForTesting
+Future<void> runRealtimeCleanup(
+  Iterable<Future<void> Function()> operations,
+) async {
+  Object? firstError;
+  StackTrace? firstStackTrace;
+  for (final operation in operations) {
+    try {
+      await operation();
+    } catch (error, stackTrace) {
+      firstError ??= error;
+      firstStackTrace ??= stackTrace;
     }
-    await localStream?.dispose();
-    await events?.close();
-    await peer?.close();
+  }
+  final error = firstError;
+  if (error != null) {
+    Error.throwWithStackTrace(error, firstStackTrace!);
   }
 }
 

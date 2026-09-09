@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/config/backend_url_store.dart';
+import 'package:wearcam/ui/wearcam_app.dart';
 import 'package:wearcam/ui/wearcam_bootstrap.dart';
 
 void main() {
@@ -114,6 +116,39 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('HTTP is debug-only'), findsOneWidget);
+  });
+
+  test(
+    'change backend handles cleanup failures without leaking details',
+    () async {
+      final diagnostics = ConnectionDiagnostics(backendHost: 'safe.example');
+
+      await handleChangeBackend(
+        () async => throw StateError('Authorization: Bearer secret-token'),
+        diagnostics,
+      );
+
+      expect(
+        diagnostics.entries.single.status,
+        'previous_session_cleanup_failed',
+      );
+      expect(diagnostics.copyText, contains('StateError'));
+      expect(diagnostics.copyText, isNot(contains('secret-token')));
+    },
+  );
+
+  test('change backend opens setup even when cleanup fails', () async {
+    var setupOpened = false;
+
+    await expectLater(
+      changeBackendAfterCleanup(
+        () async => throw StateError('cleanup failed'),
+        () async => setupOpened = true,
+      ),
+      throwsStateError,
+    );
+
+    expect(setupOpened, isTrue);
   });
 }
 

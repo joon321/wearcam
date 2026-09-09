@@ -302,7 +302,10 @@ final class OpenAIRealtimeProvider implements AIProvider {
     // it must never close the same WebRTC object twice.
     final connection = _connection;
     _connection = null;
-    await connection?.stop();
-    _states.add(AIConnectionState.disconnected);
+    try {
+      await connection?.stop();
+    } finally {
+      _states.add(AIConnectionState.disconnected);
+    }
   }
 }

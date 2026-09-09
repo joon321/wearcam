@@ -189,6 +189,58 @@ void main() {
     expect(diagnostics.copyText, isNot(contains('v=0')));
     expect(diagnostics.copyText, isNot(contains('bad request')));
   });
+
+  test('realtime cleanup continues after an early operation fails', () async {
+    final completed = <String>[];
+
+    await expectLater(
+      runRealtimeCleanup([
+        () async {
+          completed.add('track.stop');
+          throw StateError('track stop failed');
+        },
+        () async => completed.add('stream.dispose'),
+        () async => completed.add('events.close'),
+        () async => completed.add('peer.close'),
+      ]),
+      throwsStateError,
+    );
+
+    expect(completed, [
+      'track.stop',
+      'stream.dispose',
+      'events.close',
+      'peer.close',
+    ]);
+  });
+
+  test(
+    'cleanup failure still returns provider state to disconnected',
+    () async {
+      final connection = _FakeConnection(
+        stop: () async => throw StateError('cleanup failed'),
+      );
+      var requestCount = 0;
+      final provider = OpenAIRealtimeProvider(
+        backendBaseUri: Uri.parse('https://saved.example.test'),
+        httpClient: MockClient((_) async {
+          requestCount += 1;
+          return requestCount == 1
+              ? http.Response('{"value":"temporary"}', 201)
+              : http.Response('answer', 200);
+        }),
+        connectionFactory: (_) => connection,
+      );
+      final states = <AIConnectionState>[];
+      provider.connectionStates.listen(states.add);
+      await provider.startSession();
+
+      await expectLater(provider.stopSession(), throwsStateError);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(states.last, AIConnectionState.disconnected);
+    },
+  );
 }
 
 OpenAIRealtimeProvider _provider(
@@ -204,8 +256,11 @@ OpenAIRealtimeProvider _provider(
 );
 
 final class _FakeConnection implements RealtimeConnection {
-  _FakeConnection({Future<void>? wait}) : wait = wait ?? Future.value();
+  _FakeConnection({Future<void>? wait, Future<void> Function()? stop})
+    : wait = wait ?? Future.value(),
+      _stop = stop;
   final Future<void> wait;
+  final Future<void> Function()? _stop;
 
   @override
   Future<void> acquireMicrophone({required bool muted}) async {}
@@ -220,7 +275,10 @@ final class _FakeConnection implements RealtimeConnection {
   @override
   Future<void> setMicrophoneMuted(bool muted) async {}
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    await _stop?.call();
+  }
+
   @override
   Future<void> waitUntilConnected() => wait;
 }

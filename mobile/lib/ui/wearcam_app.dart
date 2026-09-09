@@ -260,7 +260,7 @@ final class _Settings extends StatelessWidget {
         leading: const Icon(Icons.settings_ethernet),
         title: const Text('Change backend'),
         subtitle: const Text('Update the saved WearCam backend URL'),
-        onTap: onChangeBackend,
+        onTap: () => handleChangeBackend(onChangeBackend, diagnostics),
       ),
       if (kDebugMode)
         ListTile(
@@ -289,6 +289,23 @@ final class _Settings extends StatelessWidget {
       ),
     ],
   );
+}
+
+@visibleForTesting
+Future<void> handleChangeBackend(
+  Future<void> Function() onChangeBackend,
+  ConnectionDiagnostics diagnostics,
+) async {
+  try {
+    await onChangeBackend();
+  } catch (error) {
+    diagnostics.record(
+      ConnectionStage.readBackendConfiguration,
+      'previous_session_cleanup_failed',
+      message:
+          'Backend setup opened after cleanup failed (${error.runtimeType}).',
+    );
+  }
 }
 
 final class _DiagnosticsScreen extends StatelessWidget {
