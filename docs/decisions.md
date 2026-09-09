@@ -25,6 +25,20 @@
   crash. The app manifest now declares the plugin's required network-state,
   network-change, and audio-settings permissions before native WebRTC starts.
 
+## Bounded connection diagnostics
+
+- Connection startup previously awaited the credential POST, SDP POST, and native
+  WebRTC connection without application-level deadlines. A pending operation left
+  the provider in `connecting`, while the button callback discarded the thrown
+  error. This was the direct cause of the indefinite UI state.
+- Startup now has named, in-memory diagnostic stages and a 30-second overall
+  deadline, with shorter 10-second credential and 15-second SDP deadlines. Errors
+  return the UI to `disconnected` and disclose only stage, safe status, backend
+  host, HTTP status, and request ID.
+- SDP, authorization values, and credentials are excluded from diagnostic data.
+  Backend request logs similarly contain only method, URL path, status, elapsed
+  time, and request ID.
+
 ## OpenAI Realtime transport
 
 The app uses WebRTC because it provides microphone capture, remote audio playback,

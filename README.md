@@ -31,7 +31,9 @@ npm run dev
 `npm run dev` automatically loads `backend/.env` and starts the service in watch
 mode on port `8787` by default. Keep `OPENAI_API_KEY` only in that server-side
 file. Each session asks this service for a short-lived Realtime credential; the
-APK contains only the backend URL.
+APK contains only the backend URL. The backend logs safe request metadata (method,
+path, status, duration, and request ID), never authorization values, credentials,
+tokens, request bodies, or SDP.
 
 ## Mobile setup
 

@@ -1,5 +1,8 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/phone_camera_source.dart';
 import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
@@ -9,11 +12,13 @@ final class WearCamApp extends StatelessWidget {
   const WearCamApp({
     required this.camera,
     required this.controller,
+    required this.diagnostics,
     required this.onChangeBackend,
     super.key,
   });
   final PhoneCameraSource camera;
   final ConversationController controller;
+  final ConnectionDiagnostics diagnostics;
   final Future<void> Function() onChangeBackend;
 
   @override
@@ -23,6 +28,7 @@ final class WearCamApp extends StatelessWidget {
     home: WearCamHome(
       camera: camera,
       controller: controller,
+      diagnostics: diagnostics,
       onChangeBackend: onChangeBackend,
     ),
   );
@@ -32,11 +38,13 @@ final class WearCamHome extends StatefulWidget {
   const WearCamHome({
     required this.camera,
     required this.controller,
+    required this.diagnostics,
     required this.onChangeBackend,
     super.key,
   });
   final PhoneCameraSource camera;
   final ConversationController controller;
+  final ConnectionDiagnostics diagnostics;
   final Future<void> Function() onChangeBackend;
 
   @override
@@ -52,7 +60,10 @@ final class _WearCamHomeState extends State<WearCamHome> {
       _Home(controller: widget.controller),
       _Camera(camera: widget.camera),
       _Conversation(controller: widget.controller),
-      _Settings(onChangeBackend: widget.onChangeBackend),
+      _Settings(
+        onChangeBackend: widget.onChangeBackend,
+        diagnostics: widget.diagnostics,
+      ),
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('WearCam Bridge')),
@@ -120,8 +131,27 @@ final class _Home extends StatelessWidget {
           icon: const Icon(Icons.stop_circle_outlined),
           label: const Text('Stop everything'),
         ),
-        if (controller.error != null)
+        if (controller.error != null) ...[
           Text(controller.error!, style: const TextStyle(color: Colors.red)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              FilledButton.tonal(
+                key: const Key('retry-connection'),
+                onPressed: controller.start,
+                child: const Text('Retry'),
+              ),
+              OutlinedButton(
+                key: const Key('copy-diagnostics'),
+                onPressed: () => Clipboard.setData(
+                  ClipboardData(text: controller.diagnostics.copyText),
+                ),
+                child: const Text('Copy diagnostics'),
+              ),
+            ],
+          ),
+        ],
       ],
     ),
   );
@@ -214,8 +244,9 @@ final class _Conversation extends StatelessWidget {
 }
 
 final class _Settings extends StatelessWidget {
-  const _Settings({required this.onChangeBackend});
+  const _Settings({required this.onChangeBackend, required this.diagnostics});
   final Future<void> Function() onChangeBackend;
+  final ConnectionDiagnostics diagnostics;
 
   @override
   Widget build(BuildContext context) => ListView(
@@ -231,6 +262,18 @@ final class _Settings extends StatelessWidget {
         subtitle: const Text('Update the saved WearCam backend URL'),
         onTap: onChangeBackend,
       ),
+      if (kDebugMode)
+        ListTile(
+          key: const Key('connection-diagnostics-action'),
+          leading: const Icon(Icons.bug_report_outlined),
+          title: const Text('Connection diagnostics'),
+          subtitle: const Text('Debug-only sanitized connection timeline'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => _DiagnosticsScreen(diagnostics: diagnostics),
+            ),
+          ),
+        ),
       const ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
       const ListTile(
         title: Text('Long edge'),
@@ -245,5 +288,35 @@ final class _Settings extends StatelessWidget {
         subtitle: Text('Planned for Milestone 3'),
       ),
     ],
+  );
+}
+
+final class _DiagnosticsScreen extends StatelessWidget {
+  const _DiagnosticsScreen({required this.diagnostics});
+  final ConnectionDiagnostics diagnostics;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Connection diagnostics'),
+      actions: [
+        IconButton(
+          tooltip: 'Copy diagnostics',
+          onPressed: () =>
+              Clipboard.setData(ClipboardData(text: diagnostics.copyText)),
+          icon: const Icon(Icons.copy),
+        ),
+      ],
+    ),
+    body: AnimatedBuilder(
+      animation: diagnostics,
+      builder: (context, _) => ListView.builder(
+        itemCount: diagnostics.entries.length,
+        itemBuilder: (context, index) => ListTile(
+          title: Text(diagnostics.entries[index].stage.wireName),
+          subtitle: Text(diagnostics.entries[index].summary),
+        ),
+      ),
+    ),
   );
 }

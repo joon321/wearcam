@@ -10,6 +10,13 @@ const MAX_BODY_BYTES = 1024;
 const INSTRUCTIONS = `You are WearCam, a concise spoken assistant. When the user refers to their current surroundings, says the view changed, or asks a visual question, call get_current_view. Never answer a current visual question from a stale image. Explain that Stop looking immediately disables images.`;
 
 type Fetch = typeof fetch;
+type RequestLog = (entry: {
+  requestId: string;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+}) => void;
 
 function json(
   response: ServerResponse,
@@ -36,13 +43,33 @@ async function consumeSmallBody(request: IncomingMessage): Promise<void> {
 
 export function createApp(
   config: Config,
-  dependencies: { fetch?: Fetch; limiter?: FixedWindowRateLimiter } = {},
+  dependencies: {
+    fetch?: Fetch;
+    limiter?: FixedWindowRateLimiter;
+    requestLog?: RequestLog;
+  } = {},
 ) {
   const requestFetch = dependencies.fetch ?? fetch;
   const limiter = dependencies.limiter ?? new FixedWindowRateLimiter();
+  const requestLog =
+    dependencies.requestLog ??
+    ((entry: Parameters<RequestLog>[0]) => console.log(JSON.stringify(entry)));
 
   return createServer(async (request, response) => {
     const requestId = crypto.randomUUID();
+    const startedAt = performance.now();
+    const method = request.method ?? "UNKNOWN";
+    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    response.setHeader("x-request-id", requestId);
+    response.once("finish", () => {
+      requestLog({
+        requestId,
+        method,
+        path,
+        status: response.statusCode,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+    });
     try {
       if (request.method === "OPTIONS") {
         response.writeHead(204, {

@@ -46,6 +46,16 @@ Run every case on at least one current Android phone and one iPhone.
 12. While a session is connecting and while one is connected, rapidly tap Stop
     Everything or change the backend. Confirm WearCam returns to a stable stopped
     or setup state without a native crash, including on Android 16 devices.
+13. Clear app data, configure the phone-reachable backend URL, and start a visual
+    conversation. Confirm the backend prints a `POST` for
+    `/v1/realtime/client-secret` with status, duration, and request ID.
+14. If startup fails, confirm the app returns to `disconnected` within 30 seconds,
+    shows the failed stage, and offers Retry and Copy diagnostics. In a debug APK,
+    open Settings → Connection diagnostics and confirm the same timestamped stages
+    and backend host appear without credentials, authorization data, or SDP.
+15. Stop the backend and retry to exercise `request_temporary_credentials`. Then
+    restart it and retry successfully. Record the sanitized copied diagnostics and
+    matching backend request ID, but never record a credential or API key.
 
 ## Known external validation gates
 

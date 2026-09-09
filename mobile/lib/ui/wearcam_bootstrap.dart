@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/ai/openai_realtime_provider.dart';
 import 'package:wearcam/camera/phone_camera_source.dart';
 import 'package:wearcam/config/backend_configuration.dart';
@@ -273,15 +274,23 @@ final class _WearCamRuntime extends StatefulWidget {
 final class _WearCamRuntimeState extends State<_WearCamRuntime> {
   late final PhoneCameraSource _camera;
   late final ConversationController _controller;
+  late final ConnectionDiagnostics _diagnostics;
   Future<void>? _shutdownFuture;
 
   @override
   void initState() {
     super.initState();
     _camera = PhoneCameraSource();
+    _diagnostics = ConnectionDiagnostics(
+      backendHost: widget.backendBaseUri.host,
+    )..record(ConnectionStage.readBackendConfiguration, 'succeeded');
     _controller = ConversationController(
       camera: _camera,
-      provider: OpenAIRealtimeProvider(backendBaseUri: widget.backendBaseUri),
+      diagnostics: _diagnostics,
+      provider: OpenAIRealtimeProvider(
+        backendBaseUri: widget.backendBaseUri,
+        diagnostics: _diagnostics,
+      ),
     );
   }
 
@@ -303,6 +312,7 @@ final class _WearCamRuntimeState extends State<_WearCamRuntime> {
   Widget build(BuildContext context) => WearCamApp(
     camera: _camera,
     controller: _controller,
+    diagnostics: _diagnostics,
     onChangeBackend: _changeBackend,
   );
 }

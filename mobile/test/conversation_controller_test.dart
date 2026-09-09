@@ -68,10 +68,12 @@ void main() {
       provider: provider,
     );
 
-    await expectLater(controller.start(), throwsStateError);
+    await controller.start();
 
     expect(camera.disconnectCount, 1);
     expect(controller.visionModes.mode, VisionMode.off);
+    expect(controller.connectionState, AIConnectionState.disconnected);
+    expect(controller.error, contains('connection failed'));
     controller.dispose();
   });
 

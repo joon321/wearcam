@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/frame_processor.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
@@ -11,9 +12,12 @@ final class ConversationController extends ChangeNotifier {
   ConversationController({
     required this.camera,
     required this.provider,
+    ConnectionDiagnostics? diagnostics,
     this.processor = const FrameProcessor(),
     VisionModeController? visionModes,
-  }) : visionModes = visionModes ?? VisionModeController() {
+  }) : diagnostics =
+           diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
+       visionModes = visionModes ?? VisionModeController() {
     _toolSubscription = provider.toolCalls.listen(_handleToolCall);
     _stateSubscription = provider.connectionStates.listen((state) {
       if (_disposed) return;
@@ -33,6 +37,7 @@ final class ConversationController extends ChangeNotifier {
 
   final CameraSource camera;
   final AIProvider provider;
+  final ConnectionDiagnostics diagnostics;
   final FrameProcessor processor;
   final VisionModeController visionModes;
   late final StreamSubscription<ToolCall> _toolSubscription;
@@ -61,9 +66,18 @@ final class ConversationController extends ChangeNotifier {
     }
     try {
       await provider.startSession();
-    } catch (_) {
+    } on ProviderConnectionException catch (failure) {
       await camera.disconnect();
-      rethrow;
+      error = failure.displayMessage;
+      connectionState = AIConnectionState.disconnected;
+      notifyListeners();
+      return;
+    } catch (caught) {
+      await camera.disconnect();
+      error = 'connection failed (${caught.runtimeType})';
+      connectionState = AIConnectionState.disconnected;
+      notifyListeners();
+      return;
     }
     if (_disposed) return;
     visionModes.startConversation();

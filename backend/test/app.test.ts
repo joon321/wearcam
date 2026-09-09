@@ -111,3 +111,47 @@ test("health does not need provider access", async () => {
     },
   );
 });
+
+test("logs only safe request metadata after the response", async () => {
+  const logs: Array<{
+    requestId: string;
+    method: string;
+    path: string;
+    status: number;
+    durationMs: number;
+  }> = [];
+  const server = createApp(config, {
+    fetch: async () => {
+      throw new Error("must not run");
+    },
+    requestLog: (entry) => logs.push(entry),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/health?token=must-not-be-logged`,
+      { headers: { authorization: `Bearer ${permanentKey}` } },
+    );
+    await response.text();
+    assert.equal(response.headers.get("x-request-id"), logs[0]?.requestId);
+    assert.deepEqual(logs, [
+      {
+        requestId: logs[0]?.requestId,
+        method: "GET",
+        path: "/health",
+        status: 404,
+        durationMs: logs[0]?.durationMs,
+      },
+    ]);
+    const serialized = JSON.stringify(logs);
+    assert.equal(serialized.includes(permanentKey), false);
+    assert.equal(serialized.includes("must-not-be-logged"), false);
+    assert.equal(typeof logs[0]?.durationMs, "number");
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
