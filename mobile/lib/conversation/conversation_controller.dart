@@ -104,7 +104,11 @@ final class ConversationController extends ChangeNotifier {
       notifyListeners();
       return;
     } catch (caught) {
-      await camera.disconnect();
+      try {
+        await camera.disconnect();
+      } catch (_) {
+        // Preserve the provider failure below; camera cleanup is best-effort.
+      }
       error = 'connection failed (${caught.runtimeType})';
       connectionState = AIConnectionState.disconnected;
       notifyListeners();

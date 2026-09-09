@@ -82,6 +82,23 @@ void main() {
     controller.dispose();
   });
 
+  test('preserves generic startup failure when camera cleanup fails', () async {
+    final controller = ConversationController(
+      camera: FakeCamera(failDisconnect: true),
+      provider: FakeProvider(failStart: true),
+    );
+    var notifications = 0;
+    controller.addListener(() => notifications += 1);
+
+    await controller.start();
+
+    expect(controller.connectionState, AIConnectionState.disconnected);
+    expect(controller.error, 'connection failed (StateError)');
+    expect(controller.isStarting, isFalse);
+    expect(notifications, greaterThan(0));
+    controller.dispose();
+  });
+
   test('preserves provider failure when camera cleanup also fails', () async {
     final diagnostics = ConnectionDiagnostics(backendHost: 'safe.example');
     final controller = ConversationController(
