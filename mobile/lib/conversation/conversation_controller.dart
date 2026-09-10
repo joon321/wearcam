@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/capture_coordinator.dart';
@@ -20,7 +21,8 @@ Future<void> _setWakelock(bool enabled) async {
   }
 }
 
-final class ConversationController extends ChangeNotifier {
+final class ConversationController extends ChangeNotifier
+    with WidgetsBindingObserver {
   static const connectionGreeting =
       "Hi, I’m ready. Tell me what you’re working on, and I’ll look when it would help.";
   ConversationController({
@@ -77,6 +79,11 @@ final class ConversationController extends ChangeNotifier {
       _handleAuthorizationTranscript(turn);
       notifyListeners();
     });
+    try {
+      WidgetsBinding.instance.addObserver(this);
+    } catch (_) {
+      // Binding unavailable in headless unit tests.
+    }
   }
 
   void _bindCameraStatus(CameraSource source) {
@@ -93,6 +100,14 @@ final class ConversationController extends ChangeNotifier {
 
   void _handleAuthorizationChanged() {
     if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        connectionState == AIConnectionState.connected) {
+      unawaited(_setWakelock(true));
+    }
   }
 
   final CameraSource camera;
@@ -379,6 +394,9 @@ final class ConversationController extends ChangeNotifier {
     _disposed = true;
     _privacyGeneration += 1;
     unawaited(_setWakelock(false));
+    try {
+      WidgetsBinding.instance.removeObserver(this);
+    } catch (_) {}
     visionModes.removeListener(_handleAuthorizationChanged);
     visionModes.revoke();
     if (_ownsVisionModes) visionModes.dispose();
