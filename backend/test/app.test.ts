@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
-import { createApp } from "../src/app.ts";
+import { createApp, INSTRUCTIONS } from "../src/app.ts";
 import type { Config } from "../src/config.ts";
 
 const permanentKey = "permanent-provider-secret-for-isolation-test";
@@ -70,14 +70,13 @@ test("returns only the short-lived credential and never the permanent key", asyn
         },
         output: { voice: "marin" },
       },
-      instructions:
-        "You are WearCam, a concise spoken assistant. When the user refers to their current surroundings, says the view changed, or asks a visual question, call get_current_view. Never answer a current visual question from a stale image. Explain that Stop looking immediately disables images.",
+      instructions: INSTRUCTIONS,
       tools: [
         {
           type: "function",
           name: "get_current_view",
           description:
-            "Capture a genuinely fresh image from the active rear camera.",
+            "Request one fresh task-relevant image from the selected camera. The bridge rejects this unless the user authorized One Look or an active Visual Session.",
           parameters: {
             type: "object",
             properties: {},

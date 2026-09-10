@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:wearcam/ai/connection_diagnostics.dart';
+import 'package:wearcam/camera/capture_coordinator.dart';
 import 'package:wearcam/camera/frame_processor.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
@@ -15,23 +16,47 @@ final class ConversationController extends ChangeNotifier {
     required this.provider,
     ConnectionDiagnostics? diagnostics,
     this.processor = const FrameProcessor(),
-    VisionModeController? visionModes,
+    VisionAuthorizationController? visionModes,
+    CameraSourceManager? cameraSources,
+    Duration minimumSessionCaptureInterval = const Duration(seconds: 2),
   }) : diagnostics =
            diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
-       visionModes = visionModes ?? VisionModeController() {
+       visionModes = visionModes ?? VisionAuthorizationController(),
+       cameraSources = cameraSources ?? CameraSourceManager(sources: [camera]) {
+    captureCoordinator = CaptureCoordinator(
+      sources: this.cameraSources,
+      authorization: this.visionModes,
+      processor: processor,
+      minimumSessionInterval: minimumSessionCaptureInterval,
+    );
     _toolSubscription = provider.toolCalls.listen(_handleToolCall);
+    _cameraSubscription = this.cameraSources.selectedSource.status.listen((
+      state,
+    ) {
+      debugPrint('WearCam camera connection state: ${state.name}');
+      if (state == CameraStatus.disconnected || state == CameraStatus.failed) {
+        this.visionModes.revoke(VisionEndReason.cameraDisconnected);
+        _privacyGeneration += 1;
+        if (!_disposed) notifyListeners();
+      }
+    });
     _stateSubscription = provider.connectionStates.listen((state) {
       if (_disposed) return;
       connectionState = state;
       if (state == AIConnectionState.disconnected ||
           state == AIConnectionState.failed) {
-        this.visionModes.onSessionClosed();
+        this.visionModes.revoke(
+          state == AIConnectionState.failed
+              ? VisionEndReason.providerFailure
+              : VisionEndReason.conversationEnded,
+        );
       }
       notifyListeners();
     });
     _transcriptSubscription = provider.transcript.listen((turn) {
       if (_disposed) return;
       _upsertTranscriptTurn(turn);
+      _handleAuthorizationTranscript(turn);
       notifyListeners();
     });
   }
@@ -40,8 +65,11 @@ final class ConversationController extends ChangeNotifier {
   final AIProvider provider;
   final ConnectionDiagnostics diagnostics;
   final FrameProcessor processor;
-  final VisionModeController visionModes;
+  final VisionAuthorizationController visionModes;
+  final CameraSourceManager cameraSources;
+  late final CaptureCoordinator captureCoordinator;
   late final StreamSubscription<ToolCall> _toolSubscription;
+  late final StreamSubscription<CameraStatus> _cameraSubscription;
   late final StreamSubscription<AIConnectionState> _stateSubscription;
   late final StreamSubscription<TranscriptTurn> _transcriptSubscription;
   AIConnectionState connectionState = AIConnectionState.disconnected;
@@ -51,7 +79,6 @@ final class ConversationController extends ChangeNotifier {
       List.unmodifiable(_transcriptTurns);
   String? error;
   bool microphoneMuted = false;
-  bool _captureInFlight = false;
   bool _disposed = false;
   int _privacyGeneration = 0;
   Completer<void>? _activeToolCall;
@@ -59,6 +86,15 @@ final class ConversationController extends ChangeNotifier {
   Future<void>? _startInProgress;
 
   bool get isStarting => _startInProgress != null;
+  bool get isPositioning => visionModes.mode == VisionMode.oneLook;
+  String get visionStatus => switch (visionModes.mode) {
+    VisionMode.off =>
+      visionModes.pendingScope == null
+          ? 'Vision off'
+          : 'Waiting for your permission',
+    VisionMode.oneLook => 'Position camera',
+    VisionMode.visualSession => 'Visual session active',
+  };
 
   Future<void> get activeToolCallCompleted =>
       _activeToolCall?.future ?? Future<void>.value();
@@ -82,16 +118,19 @@ final class ConversationController extends ChangeNotifier {
   Future<void> _start() async {
     _transcriptTurns.clear();
     notifyListeners();
-    await camera.connect();
+    debugPrint(
+      'WearCam camera source selected: ${cameraSources.selectedSource.id}',
+    );
+    await cameraSources.selectedSource.connect();
     if (_disposed) {
-      await camera.disconnect();
+      await cameraSources.selectedSource.disconnect();
       return;
     }
     try {
       await provider.startSession();
     } on ProviderConnectionException catch (failure) {
       try {
-        await camera.disconnect();
+        await cameraSources.selectedSource.disconnect();
       } catch (cleanupError) {
         diagnostics.record(
           failure.stage,
@@ -105,7 +144,7 @@ final class ConversationController extends ChangeNotifier {
       return;
     } catch (caught) {
       try {
-        await camera.disconnect();
+        await cameraSources.selectedSource.disconnect();
       } catch (_) {
         // Preserve the provider failure below; camera cleanup is best-effort.
       }
@@ -116,9 +155,79 @@ final class ConversationController extends ChangeNotifier {
     }
     if (_disposed) return;
     error = null;
-    visionModes.startConversation();
     notifyListeners();
   }
+
+  final Set<String> _processedTranscriptIds = {};
+
+  void _handleAuthorizationTranscript(TranscriptTurn turn) {
+    if (turn.status != TranscriptStatus.completed ||
+        !_processedTranscriptIds.add(turn.id)) {
+      return;
+    }
+    final text = turn.text.toLowerCase().trim();
+    if (turn.role == TranscriptRole.assistant) {
+      if (_assistantRequestsSession(text)) {
+        visionModes.recommend(
+          VisualRecommendation.visualSession,
+          assistantTurnId: turn.id,
+          window: const Duration(seconds: 30),
+        );
+        debugPrint('WearCam model recommended scope: visual session');
+      } else if (_assistantRequestsOneLook(text)) {
+        visionModes.recommend(
+          VisualRecommendation.oneLook,
+          assistantTurnId: turn.id,
+        );
+        debugPrint('WearCam model recommended scope: one look');
+      }
+      return;
+    }
+    if (_isStopLooking(text) || _isRejection(text)) {
+      visionModes.revoke(
+        _isRejection(text)
+            ? VisionEndReason.rejected
+            : VisionEndReason.stoppedByUser,
+      );
+      debugPrint('WearCam visual authorization cancelled by user');
+    } else if (_directSessionRequest(text)) {
+      visionModes.authorizeDirectVisualSession();
+      debugPrint('WearCam visual session authorized by direct request');
+    } else if (_directOneLookRequest(text)) {
+      visionModes.authorizeDirectOneLook();
+      debugPrint('WearCam One Look authorized by direct request');
+    } else if (_isApproval(text) &&
+        visionModes.handleContextualApproval(turn.id)) {
+      debugPrint('WearCam pending visual authorization approved');
+    } else if (!_isApproval(text)) {
+      // An unrelated turn breaks the immediate contextual confirmation chain.
+      visionModes.reject();
+    }
+  }
+
+  bool _assistantRequestsSession(String text) =>
+      text.contains('visual session') &&
+      (text.contains('may i') ||
+          text.contains('permission') ||
+          text.contains('?'));
+  bool _assistantRequestsOneLook(String text) =>
+      (text.contains('one clear view') || text.contains('one look')) &&
+      (text.contains('ready') || text.contains('point the'));
+  bool _directSessionRequest(String text) => RegExp(
+    r'\b(start looking|keep (watching|looking|checking)|watch me|use the camera while)\b',
+  ).hasMatch(text);
+  bool _directOneLookRequest(String text) =>
+      RegExp(
+        r'\b(look at|take a look|check this|can you see|what am i looking at)\b',
+      ).hasMatch(text) &&
+      !_directSessionRequest(text);
+  bool _isApproval(String text) => RegExp(
+    r'^(yes|yes please|okay|ok|go ahead|ready|do it)[.!]?$',
+  ).hasMatch(text);
+  bool _isRejection(String text) =>
+      RegExp(r"^(no|no thanks|do not|don't|cancel)[.!]?$").hasMatch(text);
+  bool _isStopLooking(String text) =>
+      RegExp(r'\b(stop looking|stop watching|vision off)\b').hasMatch(text);
 
   void _upsertTranscriptTurn(TranscriptTurn turn) {
     final index = _transcriptTurns.indexWhere(
@@ -141,26 +250,16 @@ final class ConversationController extends ChangeNotifier {
 
   Future<void> _handleToolCall(ToolCall call) async {
     if (_disposed || call.name != 'get_current_view') return;
-    if (!visionModes.maySendForToolCall || _captureInFlight) {
-      await provider.completeToolCall(call.callId, {
-        'ok': false,
-        'reason': 'visual transmission disabled',
-      });
-      return;
-    }
-    _captureInFlight = true;
     final completion = Completer<void>();
     _activeToolCall = completion;
     final generation = _privacyGeneration;
     try {
-      final captured = await camera.capture();
-      if (_toolCallCancelled(generation)) {
-        if (!_disposed) await _completePrivacyCancellation(call.callId);
+      final result = await captureCoordinator.capture(call.callId);
+      if (result.kind != CaptureResultKind.sent || result.frame == null) {
+        await _completeCaptureFailure(call.callId, result.kind);
         return;
       }
-      final prepared = processor.prepare(captured);
-      // Re-check after asynchronous capture/processing so Stop looking wins the
-      // race.
+      final prepared = result.frame!;
       if (_toolCallCancelled(generation)) {
         await _completePrivacyCancellation(call.callId);
         return;
@@ -169,12 +268,13 @@ final class ConversationController extends ChangeNotifier {
         prepared,
         'Fresh view requested by get_current_view.',
       );
-      if (_toolCallCancelled(generation)) {
+      if (_disposed || generation != _privacyGeneration) {
         if (_disposed) return;
         await _completePrivacyCancellation(call.callId);
         return;
       }
       lastTransmittedFrame = prepared;
+      debugPrint('WearCam image transmission succeeded');
       await provider.completeToolCall(call.callId, {
         'ok': true,
         'captured_at': prepared.capturedAt.toIso8601String(),
@@ -188,16 +288,39 @@ final class ConversationController extends ChangeNotifier {
         'reason': 'fresh frame unavailable',
       });
     } finally {
-      _captureInFlight = false;
       if (!_disposed) notifyListeners();
       if (!completion.isCompleted) completion.complete();
     }
   }
 
   bool _toolCallCancelled(int generation) =>
-      _disposed ||
-      !visionModes.maySendForToolCall ||
-      generation != _privacyGeneration;
+      _disposed || generation != _privacyGeneration;
+
+  Future<void> _completeCaptureFailure(
+    String callId,
+    CaptureResultKind kind,
+  ) => provider.completeToolCall(
+    callId,
+    kind == CaptureResultKind.permissionRequired
+        ? {
+            'ok': false,
+            'error': {
+              'code': 'vision_permission_required',
+              'message':
+                  'Explicit user authorization is required before capturing a view.',
+              'allowedActions': ['request_one_look', 'request_visual_session'],
+            },
+          }
+        : {
+            'ok': false,
+            'reason': switch (kind) {
+              CaptureResultKind.duplicate => 'duplicate capture request',
+              CaptureResultKind.rateLimited => 'capture rate limited',
+              CaptureResultKind.cancelled => 'visual transmission cancelled',
+              _ => 'fresh frame unavailable',
+            },
+          },
+  );
 
   Future<void> _completePrivacyCancellation(String callId) =>
       provider.completeToolCall(callId, {
@@ -207,10 +330,45 @@ final class ConversationController extends ChangeNotifier {
 
   Future<void> stopLooking() async {
     _privacyGeneration += 1;
-    visionModes.stopLooking();
+    captureCoordinator.cancel();
     lastTransmittedFrame = null;
     notifyListeners();
     await provider.sendText('Visual transmission stopped. Confirm this aloud.');
+  }
+
+  void authorizeOneLook() {
+    visionModes.authorizeDirectOneLook();
+    notifyListeners();
+  }
+
+  void startVisualSession() {
+    visionModes.authorizeDirectVisualSession();
+    notifyListeners();
+  }
+
+  Future<void> captureNow() async {
+    if (visionModes.mode == VisionMode.off) {
+      visionModes.authorizeCaptureNow();
+    }
+    final generation = _privacyGeneration;
+    final result = await captureCoordinator.capture(
+      'capture-now-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    if (result.kind != CaptureResultKind.sent ||
+        result.frame == null ||
+        generation != _privacyGeneration ||
+        _disposed) {
+      return;
+    }
+    await provider.sendImage(
+      result.frame!,
+      'User authorized one view with Capture now.',
+    );
+    if (generation != _privacyGeneration || _disposed) {
+      return;
+    }
+    lastTransmittedFrame = result.frame;
+    notifyListeners();
   }
 
   Future<void> toggleMute() async {
@@ -231,11 +389,11 @@ final class ConversationController extends ChangeNotifier {
 
   Future<void> _stopEverything() async {
     _privacyGeneration += 1;
-    visionModes.onSessionClosed();
+    visionModes.revoke(VisionEndReason.conversationEnded);
     lastTransmittedFrame = null;
     microphoneMuted = false;
     await provider.stopSession();
-    await camera.disconnect();
+    await cameraSources.selectedSource.disconnect();
     if (!_disposed) notifyListeners();
   }
 
@@ -243,7 +401,9 @@ final class ConversationController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _privacyGeneration += 1;
+    visionModes.revoke(VisionEndReason.disposed);
     unawaited(_toolSubscription.cancel());
+    unawaited(_cameraSubscription.cancel());
     unawaited(_stateSubscription.cancel());
     unawaited(_transcriptSubscription.cancel());
     super.dispose();

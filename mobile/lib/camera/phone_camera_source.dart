@@ -6,6 +6,31 @@ import 'package:wearcam/domain/camera_source.dart';
 final class PhoneCameraSource implements CameraSource {
   final _status = StreamController<CameraStatus>.broadcast();
   CameraController? _controller;
+  CameraLensDirection _preferredLens = CameraLensDirection.back;
+  CameraStatus _connectionState = CameraStatus.disconnected;
+
+  @override
+  String get id => 'phone-camera';
+  @override
+  String get displayName => 'Phone camera';
+  @override
+  CameraStatus get connectionState => _connectionState;
+  @override
+  CameraCapabilities get capabilities => const CameraCapabilities(
+    supportsPreview: true,
+    supportsLensSwitching: true,
+    isHeadMounted: false,
+    supportsContinuousPreview: true,
+  );
+  CameraLensDirection get preferredLens => _preferredLens;
+
+  Future<void> selectLens(CameraLensDirection direction) async {
+    _preferredLens = direction;
+    if (_controller != null) {
+      await disconnect();
+      await connect();
+    }
+  }
 
   CameraController? get controller => _controller;
   @override
@@ -13,22 +38,25 @@ final class PhoneCameraSource implements CameraSource {
 
   @override
   Future<void> connect() async {
+    _connectionState = CameraStatus.connecting;
     _status.add(CameraStatus.connecting);
     try {
       final cameras = await availableCameras();
-      final rear = cameras
-          .where((camera) => camera.lensDirection == CameraLensDirection.back)
+      final selected = cameras
+          .where((camera) => camera.lensDirection == _preferredLens)
           .first;
       final controller = CameraController(
-        rear,
+        selected,
         ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
       _controller = controller;
+      _connectionState = CameraStatus.connected;
       _status.add(CameraStatus.connected);
     } catch (_) {
+      _connectionState = CameraStatus.failed;
       _status.add(CameraStatus.failed);
       rethrow;
     }
@@ -38,7 +66,7 @@ final class PhoneCameraSource implements CameraSource {
   Future<CameraFrame> capture() async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
-      throw StateError('Rear camera is not connected');
+      throw StateError('Phone camera is not connected');
     }
     // Timestamp immediately after plugin capture completion: no preview/cached
     // frame is used.
@@ -50,7 +78,7 @@ final class PhoneCameraSource implements CameraSource {
       capturedAt: DateTime.now().toUtc(),
       width: size?.height.round() ?? 0,
       height: size?.width.round() ?? 0,
-      sourceId: 'phone-rear:${controller.description.name}',
+      sourceId: 'phone-${_preferredLens.name}:${controller.description.name}',
       orientation: FrameOrientation.portraitUp,
       sharpnessScore: 0,
     );
@@ -61,6 +89,7 @@ final class PhoneCameraSource implements CameraSource {
     final controller = _controller;
     _controller = null;
     await controller?.dispose();
+    _connectionState = CameraStatus.disconnected;
     _status.add(CameraStatus.disconnected);
   }
 }

@@ -107,8 +107,8 @@ final class _Home extends StatelessWidget {
           subtitle: Text(controller.connectionState.name),
         ),
         ListTile(
-          title: const Text('Vision mode'),
-          subtitle: Text(controller.visionModes.mode.name),
+          title: const Text('Visual access'),
+          subtitle: Text(controller.visionStatus),
         ),
         FilledButton.icon(
           onPressed:
@@ -125,13 +125,13 @@ final class _Home extends StatelessWidget {
               ? null
               : controller.stopLooking,
           icon: const Icon(Icons.visibility_off),
-          label: const Text('Stop looking'),
+          label: const Text('Stop Looking'),
         ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: controller.stopEverything,
           icon: const Icon(Icons.stop_circle_outlined),
-          label: const Text('Stop everything'),
+          label: const Text('Stop Everything'),
         ),
         if (controller.error != null) ...[
           Text(controller.error!, style: const TextStyle(color: Colors.red)),
@@ -172,6 +172,12 @@ final class _Camera extends StatelessWidget {
     }
     return Column(
       children: [
+        const ListTile(
+          title: Text('Camera source'),
+          subtitle: Text(
+            'Phone camera · External/wearable camera — Coming later',
+          ),
+        ),
         const MaterialBanner(
           content: Text(
             'Local preview only — preview video is never uploaded.',
@@ -239,11 +245,18 @@ final class _ConversationState extends State<_Conversation> {
         padding: const EdgeInsets.all(16),
         children: [
           if (controller.visionModes.mode != VisionMode.off)
-            const Card(
+            Card(
               child: ListTile(
-                leading: Icon(Icons.visibility, color: Colors.green),
-                title: Text('Visual mode active'),
+                leading: const Icon(Icons.visibility, color: Colors.green),
+                title: Text(controller.visionStatus),
               ),
+            ),
+          if (controller.isPositioning)
+            FilledButton.icon(
+              key: const Key('capture-now'),
+              onPressed: controller.captureNow,
+              icon: const Icon(Icons.camera),
+              label: const Text('Capture now'),
             ),
           Text('Transcript', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
