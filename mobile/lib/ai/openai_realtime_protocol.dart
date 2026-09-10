@@ -44,6 +44,11 @@ final class OpenAIRealtimeProtocol {
     },
   };
 
+  Map<String, Object?> greetingRequest(String text) => {
+    'type': 'response.create',
+    'response': {'instructions': 'Say exactly: $text'},
+  };
+
   Map<String, Object?> imageMessage(PreparedFrame frame, String context) => {
     'type': 'conversation.item.create',
     'item': {

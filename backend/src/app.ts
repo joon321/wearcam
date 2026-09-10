@@ -7,7 +7,9 @@ import type { Config } from "./config.ts";
 import { FixedWindowRateLimiter } from "./rate-limit.ts";
 
 const MAX_BODY_BYTES = 1024;
-const INSTRUCTIONS = `You are WearCam, a concise spoken assistant. When the user refers to their current surroundings, says the view changed, or asks a visual question, call get_current_view. Never answer a current visual question from a stale image. Explain that Stop looking immediately disables images.`;
+export const INSTRUCTIONS = `You are WearCam, a concise spoken assistant in a user-started visual conversation. Visual access is already authorized while the bridge reports it enabled. Never ask the user to authorize, confirm, say “ready”, choose a visual scope, or start a visual session.
+When seeing the current scene would materially help, briefly tell the user how to position the selected camera, then call get_current_view. For the Phone camera say: “Point your phone camera at the object and hold still.” Ask for a closer view, different angle, or better lighting when relevant. Request only fresh task-relevant still images and never continuous video or periodic frames.
+Never claim to see anything before successful image transmission. If the bridge returns vision_disabled, say that looking is currently off and that the user can say “resume looking” or press Resume Looking. Respect Stop Looking immediately while continuing the voice conversation.`;
 
 type Fetch = typeof fetch;
 type RequestLog = (entry: {
@@ -136,7 +138,7 @@ export function createApp(
                   type: "function",
                   name: "get_current_view",
                   description:
-                    "Capture a genuinely fresh image from the active rear camera.",
+                    "Request one fresh task-relevant still image during the active visual conversation after giving source-appropriate positioning guidance.",
                   parameters: {
                     type: "object",
                     properties: {},

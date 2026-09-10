@@ -2,20 +2,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
 void main() {
-  test('visual mode starts off and session closure always stops it', () {
-    final modes = VisionModeController();
-    expect(modes.mode, VisionMode.off);
-    modes.startConversation();
-    expect(modes.maySendForToolCall, true);
-    modes.onSessionClosed();
-    expect(modes.mode, VisionMode.off);
-    expect(modes.maySendForToolCall, false);
+  test('visual conversation authorization lasts until revoked', () {
+    final authorization = VisionAuthorizationController();
+    expect(authorization.beginCapture(), isNull);
+    authorization.enable();
+    final generation = authorization.beginCapture();
+    expect(generation, isNotNull);
+    expect(authorization.beginCapture(), generation);
+    expect(authorization.remainsValid(generation!), isTrue);
+    authorization.revoke();
+    expect(authorization.mode, VisionMode.off);
+    expect(authorization.remainsValid(generation), isFalse);
   });
 
-  test('manual mode does not permit model-requested upload', () {
-    final modes = VisionModeController()..selectManual();
-    expect(modes.maySendForToolCall, false);
-    modes.stopLooking();
-    expect(modes.mode, VisionMode.off);
+  test('enabling and revoking notify only on state transitions', () {
+    final authorization = VisionAuthorizationController();
+    var notifications = 0;
+    authorization.addListener(() => notifications += 1);
+    authorization.enable();
+    authorization.enable();
+    authorization.revoke();
+    authorization.revoke();
+    expect(notifications, 2);
   });
 }

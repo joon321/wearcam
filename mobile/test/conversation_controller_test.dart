@@ -23,6 +23,7 @@ void main() {
       final controller = ConversationController(
         camera: camera,
         provider: provider,
+        minimumSessionCaptureInterval: Duration.zero,
       );
       await controller.start();
 
@@ -62,6 +63,141 @@ void main() {
     await provider.completed.where((id) => id == 'disabled').first;
     expect(camera.captureCount, 0);
     expect(provider.images, isEmpty);
+    expect(provider.outputs['disabled'], {
+      'ok': false,
+      'error': {
+        'code': 'vision_disabled',
+        'message': 'Looking is currently off.',
+        'allowedActions': ['resume_looking'],
+      },
+    });
+    controller.dispose();
+  });
+
+  test('concurrent tool calls are coalesced to one capture', () async {
+    final gate = Completer<void>();
+    final camera = FakeCamera(captureGate: gate.future);
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+      positioningDelay: Duration.zero,
+    );
+    await controller.start();
+    provider.issueToolCall('concurrent-1');
+    await camera.captureStarted.future;
+    provider.issueToolCall('concurrent-2');
+    await provider.completed.where((id) => id == 'concurrent-2').first;
+    gate.complete();
+    await provider.completed.where((id) => id == 'concurrent-1').first;
+    expect(camera.captureCount, 1);
+    controller.dispose();
+  });
+
+  test('excessive sequential tool calls are rate limited', () async {
+    final camera = FakeCamera();
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+      positioningDelay: Duration.zero,
+      minimumSessionCaptureInterval: const Duration(minutes: 1),
+    );
+    await controller.start();
+    provider.issueToolCall('rate-1');
+    await provider.completed.where((id) => id == 'rate-1').first;
+    provider.issueToolCall('rate-2');
+    await provider.completed.where((id) => id == 'rate-2').first;
+    expect(camera.captureCount, 1);
+    expect(provider.outputs['rate-2']?['reason'], 'capture rate limited');
+    controller.dispose();
+  });
+
+  test('enabled vision never captures without a model tool request', () async {
+    final camera = FakeCamera();
+    final controller = ConversationController(
+      camera: camera,
+      provider: FakeProvider(),
+    );
+    await controller.start();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(camera.captureCount, 0);
+    controller.dispose();
+  });
+
+  test(
+    'connected conversation enables vision and greets exactly once',
+    () async {
+      final provider = FakeProvider();
+      final controller = ConversationController(
+        camera: FakeCamera(),
+        provider: provider,
+      );
+      await controller.start();
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.visionModes.isEnabled, isTrue);
+      expect(provider.greetings, [ConversationController.connectionGreeting]);
+      expect(
+        controller.transcriptTurns.single.text,
+        ConversationController.connectionGreeting,
+      );
+      provider.emitState(AIConnectionState.connected);
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.greetings, hasLength(1));
+      controller.dispose();
+    },
+  );
+
+  test('failed connection neither enables vision nor greets', () async {
+    final provider = FakeProvider(failStart: true);
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    expect(controller.visionModes.isEnabled, isFalse);
+    expect(provider.greetings, isEmpty);
+    controller.dispose();
+  });
+
+  test(
+    'Stop Looking preserves voice and Resume Looking restores capture',
+    () async {
+      final camera = FakeCamera();
+      final provider = FakeProvider();
+      final controller = ConversationController(
+        camera: camera,
+        provider: provider,
+      );
+      await controller.start();
+      await controller.stopLooking();
+      expect(provider.stopCount, 0);
+      provider.issueToolCall('disabled');
+      await provider.completed.where((id) => id == 'disabled').first;
+      expect(
+        provider.outputs['disabled']?['error'],
+        containsPair('code', 'vision_disabled'),
+      );
+      controller.resumeLooking();
+      provider.issueToolCall('resumed');
+      await provider.completed.where((id) => id == 'resumed').first;
+      expect(camera.captureCount, 1);
+      controller.dispose();
+    },
+  );
+
+  test('a fully restarted conversation greets again', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    await Future<void>.delayed(Duration.zero);
+    await controller.stopEverything();
+    await controller.start();
+    await Future<void>.delayed(Duration.zero);
+    expect(provider.greetings, hasLength(2));
     controller.dispose();
   });
 
@@ -183,7 +319,10 @@ void main() {
     await completed;
 
     expect(provider.images, isEmpty);
-    expect(provider.outputs, isNot(contains('disposed')));
+    expect(provider.outputs['disposed'], {
+      'ok': false,
+      'reason': 'visual transmission cancelled',
+    });
     expect(notifications, notificationsBeforeDispose);
   });
 
@@ -426,11 +565,35 @@ void main() {
 }
 
 final class FakeCamera implements CameraSource {
-  FakeCamera({this.captureGate, this.connectGate, this.failDisconnect = false});
+  FakeCamera({
+    this.captureGate,
+    this.connectGate,
+    this.failDisconnect = false,
+    this.id = 'fake-camera',
+  });
   final Future<void>? captureGate;
   final Future<void>? connectGate;
   final bool failDisconnect;
   final _status = StreamController<CameraStatus>.broadcast();
+  CameraStatus _connectionState = CameraStatus.disconnected;
+  @override
+  final String id;
+  @override
+  String get displayName => 'Fake camera';
+  @override
+  CameraCapabilities get capabilities => const CameraCapabilities(
+    supportsPreview: true,
+    supportsLensSwitching: false,
+    isHeadMounted: false,
+    supportsContinuousPreview: true,
+  );
+  @override
+  CameraStatus get connectionState => _connectionState;
+  void emitStatus(CameraStatus state) {
+    _connectionState = state;
+    _status.add(state);
+  }
+
   int captureCount = 0;
   int connectCount = 0;
   int disconnectCount = 0;
@@ -441,14 +604,16 @@ final class FakeCamera implements CameraSource {
   Future<void> connect() async {
     connectCount += 1;
     await connectGate;
-    _status.add(CameraStatus.connected);
+    _connectionState = CameraStatus.connected;
+    _status.add(_connectionState);
   }
 
   @override
   Future<void> disconnect() async {
     disconnectCount += 1;
     if (failDisconnect) throw StateError('camera disconnect failed');
-    _status.add(CameraStatus.disconnected);
+    _connectionState = CameraStatus.disconnected;
+    _status.add(_connectionState);
   }
 
   @override
@@ -488,6 +653,7 @@ final class FakeProvider implements AIProvider {
   final _tools = StreamController<ToolCall>.broadcast();
   final _completed = StreamController<String>.broadcast();
   final images = <PreparedFrame>[];
+  final greetings = <String>[];
   final outputs = <String, Map<String, Object?>>{};
   int stopCount = 0;
   int startCount = 0;
@@ -500,6 +666,7 @@ final class FakeProvider implements AIProvider {
   @override
   Stream<TranscriptTurn> get transcript => _transcript.stream;
   void emitTranscript(TranscriptTurn turn) => _transcript.add(turn);
+  void emitState(AIConnectionState state) => _states.add(state);
   @override
   Stream<ToolCall> get toolCalls => _tools.stream;
   @override
@@ -526,6 +693,20 @@ final class FakeProvider implements AIProvider {
   @override
   Future<void> sendImage(PreparedFrame frame, String context) async =>
       images.add(frame);
+  @override
+  Future<void> sendGreeting(String text) async {
+    greetings.add(text);
+    _transcript.add(
+      TranscriptTurn(
+        id: 'greeting-${greetings.length}',
+        role: TranscriptRole.assistant,
+        text: text,
+        status: TranscriptStatus.completed,
+        createdAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
   @override
   Future<void> completeToolCall(
     String callId,

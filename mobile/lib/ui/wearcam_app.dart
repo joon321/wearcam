@@ -107,8 +107,8 @@ final class _Home extends StatelessWidget {
           subtitle: Text(controller.connectionState.name),
         ),
         ListTile(
-          title: const Text('Vision mode'),
-          subtitle: Text(controller.visionModes.mode.name),
+          title: const Text('Visual access'),
+          subtitle: Text(controller.visionStatus),
         ),
         FilledButton.icon(
           onPressed:
@@ -121,17 +121,27 @@ final class _Home extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         FilledButton.tonalIcon(
-          onPressed: controller.visionModes.mode == VisionMode.off
+          onPressed: controller.connectionState != AIConnectionState.connected
               ? null
+              : controller.visionModes.mode == VisionMode.off
+              ? controller.resumeLooking
               : controller.stopLooking,
-          icon: const Icon(Icons.visibility_off),
-          label: const Text('Stop looking'),
+          icon: Icon(
+            controller.visionModes.mode == VisionMode.off
+                ? Icons.visibility
+                : Icons.visibility_off,
+          ),
+          label: Text(
+            controller.visionModes.mode == VisionMode.off
+                ? 'Resume Looking'
+                : 'Stop Looking',
+          ),
         ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: controller.stopEverything,
           icon: const Icon(Icons.stop_circle_outlined),
-          label: const Text('Stop everything'),
+          label: const Text('Stop Everything'),
         ),
         if (controller.error != null) ...[
           Text(controller.error!, style: const TextStyle(color: Colors.red)),
@@ -172,6 +182,12 @@ final class _Camera extends StatelessWidget {
     }
     return Column(
       children: [
+        const ListTile(
+          title: Text('Camera source'),
+          subtitle: Text(
+            'Phone camera · External/wearable camera — Coming later',
+          ),
+        ),
         const MaterialBanner(
           content: Text(
             'Local preview only — preview video is never uploaded.',
@@ -231,6 +247,7 @@ final class _ConversationState extends State<_Conversation> {
     animation: widget.controller,
     builder: (context, _) {
       final controller = widget.controller;
+      final visionMode = controller.visionModes.mode;
       final frame = controller.lastTransmittedFrame;
       final turns = controller.transcriptTurns;
       _scrollToLatest(turns);
@@ -238,11 +255,19 @@ final class _ConversationState extends State<_Conversation> {
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
-          if (controller.visionModes.mode != VisionMode.off)
-            const Card(
+          if (visionMode != VisionMode.off)
+            Card(
               child: ListTile(
-                leading: Icon(Icons.visibility, color: Colors.green),
-                title: Text('Visual mode active'),
+                leading: const Icon(Icons.visibility, color: Colors.green),
+                title: Text(controller.visionStatusFor(visionMode)),
+              ),
+            ),
+          if (controller.positioningGuidance case final guidance?)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.center_focus_strong),
+                title: const Text('Position camera'),
+                subtitle: Text(guidance),
               ),
             ),
           Text('Transcript', style: Theme.of(context).textTheme.titleLarge),

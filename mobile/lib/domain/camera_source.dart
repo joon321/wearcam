@@ -1,6 +1,20 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 enum CameraStatus { disconnected, connecting, connected, failed }
+
+final class CameraCapabilities {
+  const CameraCapabilities({
+    required this.supportsPreview,
+    required this.supportsLensSwitching,
+    required this.isHeadMounted,
+    required this.supportsContinuousPreview,
+  });
+  final bool supportsPreview;
+  final bool supportsLensSwitching;
+  final bool isHeadMounted;
+  final bool supportsContinuousPreview;
+}
 
 enum FrameOrientation {
   portraitUp,
@@ -30,8 +44,48 @@ final class CameraFrame {
 }
 
 abstract interface class CameraSource {
+  String get id;
+  String get displayName;
+  CameraCapabilities get capabilities;
+  CameraStatus get connectionState;
   Future<void> connect();
   Future<CameraFrame> capture();
   Stream<CameraStatus> get status;
   Future<void> disconnect();
+}
+
+final class CameraSourceManager {
+  CameraSourceManager({required List<CameraSource> sources, String? selectedId})
+    : _sources = List.unmodifiable(sources),
+      _selectedId = _validatedSelectedId(sources, selectedId);
+  final List<CameraSource> _sources;
+  final _selectionChanges = StreamController<CameraSource>.broadcast();
+  String _selectedId;
+  List<CameraSource> get availableSources => _sources;
+  Stream<CameraSource> get selectionChanges => _selectionChanges.stream;
+  CameraSource get selectedSource =>
+      _sources.firstWhere((source) => source.id == _selectedId);
+  void select(String id) {
+    if (!_sources.any((source) => source.id == id)) {
+      throw ArgumentError.value(id, 'id', 'Unknown camera source');
+    }
+    _selectedId = id;
+    _selectionChanges.add(selectedSource);
+  }
+
+  static String _validatedSelectedId(
+    List<CameraSource> sources,
+    String? selectedId,
+  ) {
+    if (sources.isEmpty) throw ArgumentError.value(sources, 'sources');
+    if (selectedId != null &&
+        !sources.any((source) => source.id == selectedId)) {
+      throw ArgumentError.value(
+        selectedId,
+        'selectedId',
+        'Unknown camera source',
+      );
+    }
+    return selectedId ?? sources.first.id;
+  }
 }

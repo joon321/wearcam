@@ -22,6 +22,13 @@ void main() {
     expect(OpenAIRealtimeProtocol.responseCreate, {'type': 'response.create'});
   });
 
+  test('requests an exact spoken greeting', () {
+    expect(protocol.greetingRequest('Hello'), {
+      'type': 'response.create',
+      'response': {'instructions': 'Say exactly: Hello'},
+    });
+  });
+
   test('serializes an image as a JPEG data URL', () {
     final frame = PreparedFrame(
       jpegBytes: Uint8List.fromList([0xff, 0xd8, 0xff]),

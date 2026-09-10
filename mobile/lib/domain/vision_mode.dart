@@ -1,16 +1,29 @@
-enum VisionMode { off, manual, conversation, guidance }
+import 'package:flutter/foundation.dart';
 
-final class VisionModeController {
+enum VisionMode { off, visualConversation }
+
+final class VisionAuthorizationController extends ChangeNotifier {
   VisionMode _mode = VisionMode.off;
+  int _generation = 0;
+
   VisionMode get mode => _mode;
-  bool get maySendForToolCall => _mode == VisionMode.conversation;
+  bool get isEnabled => _mode == VisionMode.visualConversation;
 
-  void startConversation() => _mode = VisionMode.conversation;
-  void selectManual() => _mode = VisionMode.manual;
-  void stopLooking() => _mode = VisionMode.off;
-  void onSessionClosed() => _mode = VisionMode.off;
+  void enable() {
+    if (isEnabled) return;
+    _mode = VisionMode.visualConversation;
+    _generation += 1;
+    notifyListeners();
+  }
 
-  void startGuidance() {
-    throw UnsupportedError('Guidance belongs to Milestone 3');
+  int? beginCapture() => isEnabled ? _generation : null;
+
+  bool remainsValid(int generation) => isEnabled && generation == _generation;
+
+  void revoke() {
+    if (_mode == VisionMode.off) return;
+    _mode = VisionMode.off;
+    _generation += 1;
+    notifyListeners();
   }
 }
