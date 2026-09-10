@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/capture_coordinator.dart';
 import 'package:wearcam/camera/frame_processor.dart';
@@ -44,11 +45,20 @@ final class ConversationController extends ChangeNotifier {
       connectionState = state;
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
+        _upsertTranscriptTurn(TranscriptTurn(
+          id: 'connection-greeting',
+          role: TranscriptRole.assistant,
+          text: connectionGreeting,
+          status: TranscriptStatus.completed,
+          createdAt: DateTime.now().toUtc(),
+        ));
         unawaited(provider.sendGreeting(connectionGreeting));
+        unawaited(WakelockPlus.enable());
       }
       if (state == AIConnectionState.disconnected ||
           state == AIConnectionState.failed) {
         this.visionModes.revoke();
+        unawaited(WakelockPlus.disable());
       }
       notifyListeners();
     });
@@ -349,6 +359,7 @@ final class ConversationController extends ChangeNotifier {
     visionModes.revoke();
     lastTransmittedFrame = null;
     microphoneMuted = false;
+    unawaited(WakelockPlus.disable());
     await provider.stopSession();
     await cameraSources.selectedSource.disconnect();
     if (!_disposed) notifyListeners();
@@ -358,6 +369,7 @@ final class ConversationController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _privacyGeneration += 1;
+    unawaited(WakelockPlus.disable());
     visionModes.removeListener(_handleAuthorizationChanged);
     visionModes.revoke();
     if (_ownsVisionModes) visionModes.dispose();

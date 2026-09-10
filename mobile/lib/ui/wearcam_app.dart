@@ -177,15 +177,27 @@ final class _Camera extends StatelessWidget {
     final controller = camera.controller;
     if (controller == null || !controller.value.isInitialized) {
       return const Center(
-        child: Text('Start a conversation to connect the rear camera.'),
+        child: Text('Start a conversation to connect the phone camera.'),
       );
     }
+    final isFront =
+        camera.preferredLens == CameraLensDirection.front;
     return Column(
       children: [
-        const ListTile(
-          title: Text('Camera source'),
+        ListTile(
+          title: const Text('Camera source'),
           subtitle: Text(
-            'Phone camera · External/wearable camera — Coming later',
+            'Phone camera (${isFront ? 'front' : 'rear'}) · '
+            'External/wearable camera — Coming later',
+          ),
+          trailing: IconButton(
+            tooltip: isFront ? 'Switch to rear camera' : 'Switch to front camera',
+            icon: const Icon(Icons.cameraswitch),
+            onPressed: () => camera.selectLens(
+              isFront
+                  ? CameraLensDirection.back
+                  : CameraLensDirection.front,
+            ),
           ),
         ),
         const MaterialBanner(

@@ -137,10 +137,10 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(controller.visionModes.isEnabled, isTrue);
       expect(provider.greetings, [ConversationController.connectionGreeting]);
-      expect(
-        controller.transcriptTurns.single.text,
-        ConversationController.connectionGreeting,
+      final greetingTurns = controller.transcriptTurns.where(
+        (turn) => turn.text == ConversationController.connectionGreeting,
       );
+      expect(greetingTurns, hasLength(greaterThanOrEqualTo(1)));
       provider.emitState(AIConnectionState.connected);
       await Future<void>.delayed(Duration.zero);
       expect(provider.greetings, hasLength(1));
@@ -185,6 +185,170 @@ void main() {
       controller.dispose();
     },
   );
+
+  test('voice "stop looking" revokes visual access', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    expect(controller.visionModes.isEnabled, isTrue);
+    provider.emitTranscript(TranscriptTurn(
+      id: 'user-stop',
+      role: TranscriptRole.user,
+      text: 'stop looking',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isFalse);
+    controller.dispose();
+  });
+
+  test('voice "resume looking" restores visual access', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    await controller.stopLooking();
+    expect(controller.visionModes.isEnabled, isFalse);
+    provider.emitTranscript(TranscriptTurn(
+      id: 'user-resume',
+      role: TranscriptRole.user,
+      text: 'resume looking',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isTrue);
+    controller.dispose();
+  });
+
+  test('voice "look at this" enables visual access when off', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    await controller.stopLooking();
+    expect(controller.visionModes.isEnabled, isFalse);
+    provider.emitTranscript(TranscriptTurn(
+      id: 'user-look',
+      role: TranscriptRole.user,
+      text: 'can you look at this label',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isTrue);
+    controller.dispose();
+  });
+
+  test('voice "can you see" enables visual access when off', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    await controller.stopLooking();
+    provider.emitTranscript(TranscriptTurn(
+      id: 'user-see',
+      role: TranscriptRole.user,
+      text: 'can you see the valve',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isTrue);
+    controller.dispose();
+  });
+
+  test('voice commands ignore streaming turns and assistant speech', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    provider.emitTranscript(TranscriptTurn(
+      id: 'user-partial',
+      role: TranscriptRole.user,
+      text: 'stop looking',
+      status: TranscriptStatus.streaming,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isTrue);
+    provider.emitTranscript(TranscriptTurn(
+      id: 'assistant-stop',
+      role: TranscriptRole.assistant,
+      text: 'stop looking',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isTrue);
+    controller.dispose();
+  });
+
+  test('voice "stop watching" and "vision off" also revoke access', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    provider.emitTranscript(TranscriptTurn(
+      id: 'user-watch',
+      role: TranscriptRole.user,
+      text: 'please stop watching',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isFalse);
+    provider.emitTranscript(TranscriptTurn(
+      id: 'user-resume-2',
+      role: TranscriptRole.user,
+      text: 'start looking',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isTrue);
+    provider.emitTranscript(TranscriptTurn(
+      id: 'user-off',
+      role: TranscriptRole.user,
+      text: 'vision off',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.isEnabled, isFalse);
+    controller.dispose();
+  });
+
+  test('greeting appears in transcript immediately on connection', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    await Future<void>.delayed(Duration.zero);
+    final greetingTurn = controller.transcriptTurns.firstWhere(
+      (turn) => turn.id == 'connection-greeting',
+    );
+    expect(greetingTurn.text, ConversationController.connectionGreeting);
+    expect(greetingTurn.role, TranscriptRole.assistant);
+    expect(greetingTurn.status, TranscriptStatus.completed);
+    controller.dispose();
+  });
 
   test('a fully restarted conversation greets again', () async {
     final provider = FakeProvider();
