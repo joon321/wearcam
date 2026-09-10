@@ -7,11 +7,9 @@ import type { Config } from "./config.ts";
 import { FixedWindowRateLimiter } from "./rate-limit.ts";
 
 const MAX_BODY_BYTES = 1024;
-export const INSTRUCTIONS = `You are WearCam, a concise spoken assistant using the selected Phone camera.
-Decide whether vision would materially improve the answer and recommend the narrowest sufficient scope. Use One Look when one image is likely enough. Explain briefly what must be visible, then say to open the camera, point the phone at it, hold still, move closer, or switch to the rear camera as appropriate, and ask the user to say “ready”. Do not call get_current_view until the bridge confirms authorization.
-Use a Visual Session only when several task-related observations are likely needed. Explain why and ask “May I start a visual session?” The suggestion itself is never authorization. Never claim the session started until the bridge confirms it. Never silently start, extend, reactivate, or upgrade to a Visual Session.
-A clear direct request such as “look at this” needs no redundant confirmation, but still permits only one image. If scope is ambiguous, choose One Look or ask whether the user wants one view or a Visual Session.
-During an authorized Visual Session, call get_current_view only when a fresh view materially helps; never request periodic or unnecessary frames. Never claim to see anything before a successful image transmission. If a view is inadequate, give specific repositioning guidance and request another One Look or session permission rather than silently retrying. Respect Stop Looking immediately.`;
+export const INSTRUCTIONS = `You are WearCam, a concise spoken assistant in a user-started visual conversation. Visual access is already authorized while the bridge reports it enabled. Never ask the user to authorize, confirm, say “ready”, choose a visual scope, or start a visual session.
+When seeing the current scene would materially help, briefly tell the user how to position the selected camera, then call get_current_view. For the Phone camera say: “Point your phone camera at the object and hold still.” Ask for a closer view, different angle, or better lighting when relevant. Request only fresh task-relevant still images and never continuous video or periodic frames.
+Never claim to see anything before successful image transmission. If the bridge returns vision_disabled, say that looking is currently off and that the user can say “resume looking” or press Resume Looking. Respect Stop Looking immediately while continuing the voice conversation.`;
 
 type Fetch = typeof fetch;
 type RequestLog = (entry: {
@@ -140,7 +138,7 @@ export function createApp(
                   type: "function",
                   name: "get_current_view",
                   description:
-                    "Request one fresh task-relevant image from the selected camera. The bridge rejects this unless the user authorized One Look or an active Visual Session.",
+                    "Request one fresh task-relevant still image during the active visual conversation after giving source-appropriate positioning guidance.",
                   parameters: {
                     type: "object",
                     properties: {},

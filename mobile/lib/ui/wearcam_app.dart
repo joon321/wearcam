@@ -121,11 +121,21 @@ final class _Home extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         FilledButton.tonalIcon(
-          onPressed: controller.visionModes.mode == VisionMode.off
+          onPressed: controller.connectionState != AIConnectionState.connected
               ? null
+              : controller.visionModes.mode == VisionMode.off
+              ? controller.resumeLooking
               : controller.stopLooking,
-          icon: const Icon(Icons.visibility_off),
-          label: const Text('Stop Looking'),
+          icon: Icon(
+            controller.visionModes.mode == VisionMode.off
+                ? Icons.visibility
+                : Icons.visibility_off,
+          ),
+          label: Text(
+            controller.visionModes.mode == VisionMode.off
+                ? 'Resume Looking'
+                : 'Stop Looking',
+          ),
         ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
@@ -252,12 +262,13 @@ final class _ConversationState extends State<_Conversation> {
                 title: Text(controller.visionStatusFor(visionMode)),
               ),
             ),
-          if (controller.isPositioning)
-            FilledButton.icon(
-              key: const Key('capture-now'),
-              onPressed: controller.captureNow,
-              icon: const Icon(Icons.camera),
-              label: const Text('Capture now'),
+          if (controller.positioningGuidance case final guidance?)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.center_focus_strong),
+                title: const Text('Position camera'),
+                subtitle: Text(guidance),
+              ),
             ),
           Text('Transcript', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),

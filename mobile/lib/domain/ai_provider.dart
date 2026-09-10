@@ -28,6 +28,7 @@ abstract interface class AIProvider {
   Stream<ToolCall> get toolCalls;
   Future<void> startSession();
   Future<void> sendText(String text);
+  Future<void> sendGreeting(String text);
   Future<void> sendImage(PreparedFrame frame, String context);
   Future<void> completeToolCall(String callId, Map<String, Object?> output);
   Future<void> setMicrophoneMuted(bool muted);

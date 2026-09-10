@@ -40,18 +40,18 @@ final class CaptureCoordinator {
   final Set<String> _handledCalls = {};
   Future<void> _serial = Future.value();
   DateTime? _lastSessionCapture;
+  bool _capturePending = false;
 
   Future<CaptureResult> capture(String callId) {
-    if (!_handledCalls.add(callId)) {
+    if (!_handledCalls.add(callId) || _capturePending) {
       debugPrint('WearCam duplicate capture request coalesced');
       return Future.value(const CaptureResult(CaptureResultKind.duplicate));
     }
+    _capturePending = true;
     final completer = Completer<CaptureResult>();
     _serial = _serial.then((_) async {
       // Read authorization only when this queued operation actually starts.
-      final session = authorization.mode == VisionMode.visualSession;
-      if (session &&
-          _lastSessionCapture != null &&
+      if (_lastSessionCapture != null &&
           _now().difference(_lastSessionCapture!) < minimumSessionInterval) {
         completer.complete(const CaptureResult(CaptureResultKind.rateLimited));
         debugPrint('WearCam visual session capture rate limited');
@@ -69,21 +69,21 @@ final class CaptureCoordinator {
         debugPrint('WearCam capture started from ${sources.selectedSource.id}');
         final captured = await sources.selectedSource.capture();
         final prepared = processor.prepare(captured);
-        if (!authorization.remainsValid(generation, sessionCapture: session)) {
+        if (!authorization.remainsValid(generation)) {
           completer.complete(const CaptureResult(CaptureResultKind.cancelled));
           return;
         }
-        if (session) _lastSessionCapture = _now();
+        _lastSessionCapture = _now();
         debugPrint('WearCam capture completed and ready for transmission');
         completer.complete(
           CaptureResult(CaptureResultKind.sent, frame: prepared),
         );
       } catch (_) {
-        if (!session) authorization.revoke();
+        authorization.revoke();
         completer.complete(const CaptureResult(CaptureResultKind.failed));
       }
     });
-    return completer.future;
+    return completer.future.whenComplete(() => _capturePending = false);
   }
 
   void cancel() => authorization.revoke();

@@ -76,7 +76,7 @@ test("returns only the short-lived credential and never the permanent key", asyn
           type: "function",
           name: "get_current_view",
           description:
-            "Request one fresh task-relevant image from the selected camera. The bridge rejects this unless the user authorized One Look or an active Visual Session.",
+            "Request one fresh task-relevant still image during the active visual conversation after giving source-appropriate positioning guidance.",
           parameters: {
             type: "object",
             properties: {},

@@ -26,7 +26,6 @@ void main() {
         minimumSessionCaptureInterval: Duration.zero,
       );
       await controller.start();
-      controller.startVisualSession();
 
       provider.issueToolCall('call-1');
       await provider.completed.first;
@@ -59,6 +58,7 @@ void main() {
       provider: provider,
     );
     await controller.start();
+    await controller.stopLooking();
     provider.issueToolCall('disabled');
     await provider.completed.where((id) => id == 'disabled').first;
     expect(camera.captureCount, 0);
@@ -66,17 +66,102 @@ void main() {
     expect(provider.outputs['disabled'], {
       'ok': false,
       'error': {
-        'code': 'vision_permission_required',
-        'message':
-            'Explicit user authorization is required before capturing a view.',
-        'allowedActions': ['request_one_look', 'request_visual_session'],
+        'code': 'vision_disabled',
+        'message': 'Looking is currently off.',
+        'allowedActions': ['resume_looking'],
       },
     });
     controller.dispose();
   });
 
+  test('concurrent tool calls are coalesced to one capture', () async {
+    final gate = Completer<void>();
+    final camera = FakeCamera(captureGate: gate.future);
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+      positioningDelay: Duration.zero,
+    );
+    await controller.start();
+    provider.issueToolCall('concurrent-1');
+    await camera.captureStarted.future;
+    provider.issueToolCall('concurrent-2');
+    await provider.completed.where((id) => id == 'concurrent-2').first;
+    gate.complete();
+    await provider.completed.where((id) => id == 'concurrent-1').first;
+    expect(camera.captureCount, 1);
+    controller.dispose();
+  });
+
+  test('excessive sequential tool calls are rate limited', () async {
+    final camera = FakeCamera();
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+      positioningDelay: Duration.zero,
+      minimumSessionCaptureInterval: const Duration(minutes: 1),
+    );
+    await controller.start();
+    provider.issueToolCall('rate-1');
+    await provider.completed.where((id) => id == 'rate-1').first;
+    provider.issueToolCall('rate-2');
+    await provider.completed.where((id) => id == 'rate-2').first;
+    expect(camera.captureCount, 1);
+    expect(provider.outputs['rate-2']?['reason'], 'capture rate limited');
+    controller.dispose();
+  });
+
+  test('enabled vision never captures without a model tool request', () async {
+    final camera = FakeCamera();
+    final controller = ConversationController(
+      camera: camera,
+      provider: FakeProvider(),
+    );
+    await controller.start();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(camera.captureCount, 0);
+    controller.dispose();
+  });
+
   test(
-    'direct visual transcript authorizes exactly one selected-source capture',
+    'connected conversation enables vision and greets exactly once',
+    () async {
+      final provider = FakeProvider();
+      final controller = ConversationController(
+        camera: FakeCamera(),
+        provider: provider,
+      );
+      await controller.start();
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.visionModes.isEnabled, isTrue);
+      expect(provider.greetings, [ConversationController.connectionGreeting]);
+      expect(
+        controller.transcriptTurns.single.text,
+        ConversationController.connectionGreeting,
+      );
+      provider.emitState(AIConnectionState.connected);
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.greetings, hasLength(1));
+      controller.dispose();
+    },
+  );
+
+  test('failed connection neither enables vision nor greets', () async {
+    final provider = FakeProvider(failStart: true);
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    expect(controller.visionModes.isEnabled, isFalse);
+    expect(provider.greetings, isEmpty);
+    controller.dispose();
+  });
+
+  test(
+    'Stop Looking preserves voice and Resume Looking restores capture',
     () async {
       final camera = FakeCamera();
       final provider = FakeProvider();
@@ -85,183 +170,34 @@ void main() {
         provider: provider,
       );
       await controller.start();
-      provider.emitTranscript(
-        _completedTurn('user-look', TranscriptRole.user, 'Can you see this?'),
+      await controller.stopLooking();
+      expect(provider.stopCount, 0);
+      provider.issueToolCall('disabled');
+      await provider.completed.where((id) => id == 'disabled').first;
+      expect(
+        provider.outputs['disabled']?['error'],
+        containsPair('code', 'vision_disabled'),
       );
-      await Future<void>.delayed(Duration.zero);
-      expect(controller.visionModes.mode, VisionMode.oneLook);
-
-      provider.issueToolCall('authorized');
-      await provider.completed.where((id) => id == 'authorized').first;
-      provider.issueToolCall('not-reusable');
-      await provider.completed.where((id) => id == 'not-reusable').first;
-
+      controller.resumeLooking();
+      provider.issueToolCall('resumed');
+      await provider.completed.where((id) => id == 'resumed').first;
       expect(camera.captureCount, 1);
-      expect(provider.images, hasLength(1));
-      expect(controller.visionModes.mode, VisionMode.off);
       controller.dispose();
     },
   );
 
-  test(
-    'assistant recommendations do not authorize and contextual approval does',
-    () async {
-      final provider = FakeProvider();
-      final controller = ConversationController(
-        camera: FakeCamera(),
-        provider: provider,
-      );
-      provider.emitTranscript(
-        _completedTurn(
-          'assistant-request',
-          TranscriptRole.assistant,
-          'I need one clear view. Point the phone at the valve and say ready.',
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(controller.visionModes.mode, VisionMode.off);
-      expect(controller.visionModes.pendingScope, VisualRecommendation.oneLook);
-
-      provider.emitTranscript(
-        _completedTurn('user-ready', TranscriptRole.user, 'Ready.'),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(controller.visionModes.mode, VisionMode.oneLook);
-      // Replayed transcript IDs cannot grant fresh authorization.
-      controller.visionModes.revoke();
-      provider.emitTranscript(
-        _completedTurn('user-ready', TranscriptRole.user, 'Ready.'),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(controller.visionModes.mode, VisionMode.off);
-      controller.dispose();
-    },
-  );
-
-  test(
-    'isolated approval and assistant speech cannot authorize vision',
-    () async {
-      final provider = FakeProvider();
-      final controller = ConversationController(
-        camera: FakeCamera(),
-        provider: provider,
-      );
-      provider.emitTranscript(
-        _completedTurn('assistant-yes', TranscriptRole.assistant, 'Yes.'),
-      );
-      provider.emitTranscript(
-        _completedTurn('user-yes', TranscriptRole.user, 'Okay.'),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(controller.visionModes.mode, VisionMode.off);
-      controller.dispose();
-    },
-  );
-
-  test(
-    'direct ongoing-observation request starts a user-authorized session',
-    () async {
-      final provider = FakeProvider();
-      final controller = ConversationController(
-        camera: FakeCamera(),
-        provider: provider,
-      );
-      provider.emitTranscript(
-        _completedTurn(
-          'user-session',
-          TranscriptRole.user,
-          'Keep checking my progress while I do this.',
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(controller.visionModes.mode, VisionMode.visualSession);
-      controller.dispose();
-    },
-  );
-
-  test(
-    'unrelated user speech clears pending approval but preserves a session',
-    () async {
-      final provider = FakeProvider();
-      final controller = ConversationController(
-        camera: FakeCamera(),
-        provider: provider,
-      );
-      controller.startVisualSession();
-      provider.emitTranscript(
-        _completedTurn(
-          'unrelated',
-          TranscriptRole.user,
-          'Tell me about plumbing.',
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(controller.visionModes.mode, VisionMode.visualSession);
-      controller.dispose();
-    },
-  );
-
-  test('new sessions may process reused transcript turn identifiers', () async {
+  test('a fully restarted conversation greets again', () async {
     final provider = FakeProvider();
     final controller = ConversationController(
       camera: FakeCamera(),
       provider: provider,
     );
     await controller.start();
-    provider.emitTranscript(
-      _completedTurn('session-turn', TranscriptRole.user, 'Look at this.'),
-    );
     await Future<void>.delayed(Duration.zero);
-    expect(controller.visionModes.mode, VisionMode.oneLook);
-    controller.visionModes.revoke();
-
+    await controller.stopEverything();
     await controller.start();
-    provider.emitTranscript(
-      _completedTurn('session-turn', TranscriptRole.user, 'Look at this.'),
-    );
     await Future<void>.delayed(Duration.zero);
-    expect(controller.visionModes.mode, VisionMode.oneLook);
-    controller.dispose();
-  });
-
-  test('camera status monitoring follows the newly selected source', () async {
-    final first = FakeCamera(id: 'first');
-    final second = FakeCamera(id: 'second');
-    expect(() => CameraSourceManager(sources: const []), throwsArgumentError);
-    expect(
-      () => CameraSourceManager(sources: [first], selectedId: 'missing'),
-      throwsArgumentError,
-    );
-    final manager = CameraSourceManager(sources: [first, second]);
-    final controller = ConversationController(
-      camera: first,
-      cameraSources: manager,
-      provider: FakeProvider(),
-    );
-    controller.startVisualSession();
-    manager.select('second');
-    await Future<void>.delayed(Duration.zero);
-    second.emitStatus(CameraStatus.failed);
-    await Future<void>.delayed(Duration.zero);
-    expect(controller.visionModes.mode, VisionMode.off);
-    controller.dispose();
-  });
-
-  test('Capture now reports a rate-limited result to the user', () async {
-    final provider = FakeProvider();
-    final controller = ConversationController(
-      camera: FakeCamera(),
-      provider: provider,
-      minimumSessionCaptureInterval: const Duration(minutes: 1),
-    );
-    await controller.start();
-    controller.startVisualSession();
-    provider.issueToolCall('first-session-view');
-    await provider.completed.where((id) => id == 'first-session-view').first;
-
-    await controller.captureNow();
-
-    expect(controller.error, 'Please wait before capturing again');
+    expect(provider.greetings, hasLength(2));
     controller.dispose();
   });
 
@@ -348,7 +284,6 @@ void main() {
       provider: provider,
     );
     await controller.start();
-    controller.authorizeOneLook();
     provider.issueToolCall('pending');
     await camera.captureStarted.future;
     await controller.stopLooking();
@@ -372,7 +307,6 @@ void main() {
       provider: provider,
     );
     await controller.start();
-    controller.authorizeOneLook();
     var notifications = 0;
     controller.addListener(() => notifications += 1);
 
@@ -630,15 +564,6 @@ void main() {
   });
 }
 
-TranscriptTurn _completedTurn(String id, TranscriptRole role, String text) =>
-    TranscriptTurn(
-      id: id,
-      role: role,
-      text: text,
-      status: TranscriptStatus.completed,
-      createdAt: DateTime.utc(2026),
-    );
-
 final class FakeCamera implements CameraSource {
   FakeCamera({
     this.captureGate,
@@ -728,6 +653,7 @@ final class FakeProvider implements AIProvider {
   final _tools = StreamController<ToolCall>.broadcast();
   final _completed = StreamController<String>.broadcast();
   final images = <PreparedFrame>[];
+  final greetings = <String>[];
   final outputs = <String, Map<String, Object?>>{};
   int stopCount = 0;
   int startCount = 0;
@@ -740,6 +666,7 @@ final class FakeProvider implements AIProvider {
   @override
   Stream<TranscriptTurn> get transcript => _transcript.stream;
   void emitTranscript(TranscriptTurn turn) => _transcript.add(turn);
+  void emitState(AIConnectionState state) => _states.add(state);
   @override
   Stream<ToolCall> get toolCalls => _tools.stream;
   @override
@@ -766,6 +693,20 @@ final class FakeProvider implements AIProvider {
   @override
   Future<void> sendImage(PreparedFrame frame, String context) async =>
       images.add(frame);
+  @override
+  Future<void> sendGreeting(String text) async {
+    greetings.add(text);
+    _transcript.add(
+      TranscriptTurn(
+        id: 'greeting-${greetings.length}',
+        role: TranscriptRole.assistant,
+        text: text,
+        status: TranscriptStatus.completed,
+        createdAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
   @override
   Future<void> completeToolCall(
     String callId,

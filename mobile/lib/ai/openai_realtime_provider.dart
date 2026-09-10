@@ -308,6 +308,11 @@ final class OpenAIRealtimeProvider implements AIProvider {
   }
 
   @override
+  Future<void> sendGreeting(String text) async {
+    _send(_protocol.greetingRequest(text));
+  }
+
+  @override
   Future<void> sendImage(PreparedFrame frame, String context) async {
     _send(_protocol.imageMessage(frame, context));
   }

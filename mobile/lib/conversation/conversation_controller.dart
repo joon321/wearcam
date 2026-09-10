@@ -11,6 +11,8 @@ import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
 final class ConversationController extends ChangeNotifier {
+  static const connectionGreeting =
+      "Hi, I’m ready. Tell me what you’re working on, and I’ll look when it would help.";
   ConversationController({
     required this.camera,
     required this.provider,
@@ -19,6 +21,7 @@ final class ConversationController extends ChangeNotifier {
     VisionAuthorizationController? visionModes,
     CameraSourceManager? cameraSources,
     Duration minimumSessionCaptureInterval = const Duration(seconds: 2),
+    this.positioningDelay = const Duration(milliseconds: 750),
   }) : diagnostics =
            diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
        visionModes = visionModes ?? VisionAuthorizationController(),
@@ -39,6 +42,10 @@ final class ConversationController extends ChangeNotifier {
     _stateSubscription = provider.connectionStates.listen((state) {
       if (_disposed) return;
       connectionState = state;
+      if (state == AIConnectionState.connected && !_greetedThisSession) {
+        _greetedThisSession = true;
+        unawaited(provider.sendGreeting(connectionGreeting));
+      }
       if (state == AIConnectionState.disconnected ||
           state == AIConnectionState.failed) {
         this.visionModes.revoke();
@@ -73,6 +80,7 @@ final class ConversationController extends ChangeNotifier {
   final AIProvider provider;
   final ConnectionDiagnostics diagnostics;
   final FrameProcessor processor;
+  final Duration positioningDelay;
   final VisionAuthorizationController visionModes;
   final bool _ownsVisionModes;
   final CameraSourceManager cameraSources;
@@ -88,23 +96,20 @@ final class ConversationController extends ChangeNotifier {
   List<TranscriptTurn> get transcriptTurns =>
       List.unmodifiable(_transcriptTurns);
   String? error;
+  String? positioningGuidance;
   bool microphoneMuted = false;
   bool _disposed = false;
+  bool _greetedThisSession = false;
   int _privacyGeneration = 0;
   Completer<void>? _activeToolCall;
   Future<void>? _stopInProgress;
   Future<void>? _startInProgress;
 
   bool get isStarting => _startInProgress != null;
-  bool get isPositioning => visionModes.mode == VisionMode.oneLook;
   String get visionStatus => visionStatusFor(visionModes.mode);
   String visionStatusFor(VisionMode mode) => switch (mode) {
-    VisionMode.off =>
-      visionModes.pendingScope == null
-          ? 'Vision off'
-          : 'Waiting for your permission',
-    VisionMode.oneLook => 'Position camera',
-    VisionMode.visualSession => 'Visual session active',
+    VisionMode.off => 'Vision off',
+    VisionMode.visualConversation => 'Visual access enabled',
   };
 
   Future<void> get activeToolCallCompleted =>
@@ -129,6 +134,7 @@ final class ConversationController extends ChangeNotifier {
   Future<void> _start() async {
     _transcriptTurns.clear();
     _processedTranscriptIds.clear();
+    _greetedThisSession = false;
     notifyListeners();
     debugPrint(
       'WearCam camera source selected: ${cameraSources.selectedSource.id}',
@@ -167,6 +173,7 @@ final class ConversationController extends ChangeNotifier {
     }
     if (_disposed) return;
     error = null;
+    visionModes.enable();
     notifyListeners();
   }
 
@@ -178,64 +185,25 @@ final class ConversationController extends ChangeNotifier {
       return;
     }
     final text = turn.text.toLowerCase().trim();
-    if (turn.role == TranscriptRole.assistant) {
-      if (_assistantRequestsSession(text)) {
-        visionModes.recommend(
-          VisualRecommendation.visualSession,
-          assistantTurnId: turn.id,
-          window: const Duration(seconds: 30),
-        );
-        debugPrint('WearCam model recommended scope: visual session');
-      } else if (_assistantRequestsOneLook(text)) {
-        visionModes.recommend(
-          VisualRecommendation.oneLook,
-          assistantTurnId: turn.id,
-        );
-        debugPrint('WearCam model recommended scope: one look');
-      }
-      return;
-    }
-    if (_isStopLooking(text) || _isRejection(text)) {
+    if (turn.role != TranscriptRole.user) return;
+    if (_isStopLooking(text)) {
       visionModes.revoke();
-      debugPrint('WearCam visual authorization cancelled by user');
-    } else if (_directSessionRequest(text)) {
-      visionModes.authorizeDirectVisualSession();
-      debugPrint('WearCam visual session authorized by direct request');
-    } else if (_directOneLookRequest(text)) {
-      visionModes.authorizeDirectOneLook();
-      debugPrint('WearCam One Look authorized by direct request');
-    } else if (_isApproval(text) &&
-        visionModes.handleContextualApproval(turn.id)) {
-      debugPrint('WearCam pending visual authorization approved');
-    } else if (!_isApproval(text)) {
-      // An unrelated turn breaks the immediate contextual confirmation chain.
-      visionModes.clearPending();
+      _privacyGeneration += 1;
+      debugPrint('WearCam visual access stopped by user');
+    } else if (_isResumeLooking(text) || _directLookRequest(text)) {
+      visionModes.enable();
+      debugPrint('WearCam visual access resumed by user');
     }
   }
 
-  bool _assistantRequestsSession(String text) =>
-      text.contains('visual session') &&
-      (text.contains('may i') ||
-          text.contains('permission') ||
-          text.contains('?'));
-  bool _assistantRequestsOneLook(String text) =>
-      (text.contains('one clear view') || text.contains('one look')) &&
-      (text.contains('ready') || text.contains('point the'));
-  bool _directSessionRequest(String text) => RegExp(
-    r'\b(start looking|keep (watching|looking|checking)|watch me|use the camera while)\b',
-  ).hasMatch(text);
-  bool _directOneLookRequest(String text) =>
-      RegExp(
-        r'\b(look at|take a look|check this|can you see|what am i looking at)\b',
-      ).hasMatch(text) &&
-      !_directSessionRequest(text);
-  bool _isApproval(String text) => RegExp(
-    r'^(yes|yes please|okay|ok|go ahead|ready|do it)[.!]?$',
-  ).hasMatch(text);
-  bool _isRejection(String text) =>
-      RegExp(r"^(no|no thanks|do not|don't|cancel)[.!]?$").hasMatch(text);
   bool _isStopLooking(String text) =>
       RegExp(r'\b(stop looking|stop watching|vision off)\b').hasMatch(text);
+  bool _isResumeLooking(String text) => RegExp(
+    r'\b(resume looking|start looking|turn vision on)\b',
+  ).hasMatch(text);
+  bool _directLookRequest(String text) => RegExp(
+    r'\b(look at|take a look|check this|can you see)\b',
+  ).hasMatch(text);
 
   void _upsertTranscriptTurn(TranscriptTurn turn) {
     final index = _transcriptTurns.indexWhere(
@@ -262,6 +230,16 @@ final class ConversationController extends ChangeNotifier {
     _activeToolCall = completion;
     final generation = _privacyGeneration;
     try {
+      positioningGuidance =
+          cameraSources.selectedSource.capabilities.isHeadMounted
+          ? 'Look directly at the object for a moment.'
+          : 'Point your phone camera at the object and hold still.';
+      notifyListeners();
+      await Future<void>.delayed(positioningDelay);
+      if (_toolCallCancelled(generation)) {
+        await _completePrivacyCancellation(call.callId);
+        return;
+      }
       final result = await captureCoordinator.capture(call.callId);
       if (result.kind != CaptureResultKind.sent || result.frame == null) {
         await _completeCaptureFailure(call.callId, result.kind);
@@ -296,6 +274,7 @@ final class ConversationController extends ChangeNotifier {
         'reason': 'fresh frame unavailable',
       });
     } finally {
+      positioningGuidance = null;
       if (!_disposed) notifyListeners();
       if (!completion.isCompleted) completion.complete();
     }
@@ -304,31 +283,29 @@ final class ConversationController extends ChangeNotifier {
   bool _toolCallCancelled(int generation) =>
       _disposed || generation != _privacyGeneration;
 
-  Future<void> _completeCaptureFailure(
-    String callId,
-    CaptureResultKind kind,
-  ) => provider.completeToolCall(
-    callId,
-    kind == CaptureResultKind.permissionRequired
-        ? {
-            'ok': false,
-            'error': {
-              'code': 'vision_permission_required',
-              'message':
-                  'Explicit user authorization is required before capturing a view.',
-              'allowedActions': ['request_one_look', 'request_visual_session'],
-            },
-          }
-        : {
-            'ok': false,
-            'reason': switch (kind) {
-              CaptureResultKind.duplicate => 'duplicate capture request',
-              CaptureResultKind.rateLimited => 'capture rate limited',
-              CaptureResultKind.cancelled => 'visual transmission cancelled',
-              _ => 'fresh frame unavailable',
-            },
-          },
-  );
+  Future<void> _completeCaptureFailure(String callId, CaptureResultKind kind) =>
+      provider.completeToolCall(
+        callId,
+        kind == CaptureResultKind.permissionRequired
+            ? {
+                'ok': false,
+                'error': {
+                  'code': 'vision_disabled',
+                  'message': 'Looking is currently off.',
+                  'allowedActions': ['resume_looking'],
+                },
+              }
+            : {
+                'ok': false,
+                'reason': switch (kind) {
+                  CaptureResultKind.duplicate => 'duplicate capture request',
+                  CaptureResultKind.rateLimited => 'capture rate limited',
+                  CaptureResultKind.cancelled =>
+                    'visual transmission cancelled',
+                  _ => 'fresh frame unavailable',
+                },
+              },
+      );
 
   Future<void> _completePrivacyCancellation(String callId) =>
       provider.completeToolCall(callId, {
@@ -341,55 +318,15 @@ final class ConversationController extends ChangeNotifier {
     captureCoordinator.cancel();
     lastTransmittedFrame = null;
     notifyListeners();
-    await provider.sendText('Visual transmission stopped. Confirm this aloud.');
-  }
-
-  void authorizeOneLook() {
-    visionModes.authorizeDirectOneLook();
-    notifyListeners();
-  }
-
-  void startVisualSession() {
-    visionModes.authorizeDirectVisualSession();
-    notifyListeners();
-  }
-
-  Future<void> captureNow() async {
-    if (visionModes.mode == VisionMode.off) {
-      visionModes.authorizeCaptureNow();
-    }
-    final generation = _privacyGeneration;
-    final result = await captureCoordinator.capture(
-      'capture-now-${DateTime.now().microsecondsSinceEpoch}',
+    await provider.sendText(
+      'Looking is now off. Continue the voice conversation without using the camera.',
     );
-    if (result.kind != CaptureResultKind.sent || result.frame == null) {
-      if (!_disposed && generation == _privacyGeneration) {
-        error = _captureFailureMessage(result.kind);
-        notifyListeners();
-      }
-      return;
-    }
-    if (generation != _privacyGeneration || _disposed) {
-      return;
-    }
-    await provider.sendImage(
-      result.frame!,
-      'User authorized one view with Capture now.',
-    );
-    if (generation != _privacyGeneration || _disposed) {
-      return;
-    }
-    lastTransmittedFrame = result.frame;
-    notifyListeners();
   }
 
-  String _captureFailureMessage(CaptureResultKind kind) => switch (kind) {
-    CaptureResultKind.permissionRequired => 'Permission required',
-    CaptureResultKind.duplicate => 'Duplicate capture request',
-    CaptureResultKind.rateLimited => 'Please wait before capturing again',
-    CaptureResultKind.cancelled => 'Capture cancelled',
-    _ => 'Fresh frame unavailable',
-  };
+  void resumeLooking() {
+    visionModes.enable();
+    notifyListeners();
+  }
 
   Future<void> toggleMute() async {
     microphoneMuted = !microphoneMuted;
