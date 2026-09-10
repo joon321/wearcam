@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/capture_coordinator.dart';
@@ -10,6 +11,14 @@ import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
+
+Future<void> _setWakelock(bool enabled) async {
+  try {
+    await (enabled ? WakelockPlus.enable() : WakelockPlus.disable());
+  } on PlatformException {
+    debugPrint('WearCam wakelock unavailable on this platform');
+  }
+}
 
 final class ConversationController extends ChangeNotifier {
   static const connectionGreeting =
@@ -53,12 +62,12 @@ final class ConversationController extends ChangeNotifier {
           createdAt: DateTime.now().toUtc(),
         ));
         unawaited(provider.sendGreeting(connectionGreeting));
-        unawaited(WakelockPlus.enable());
+        unawaited(_setWakelock(true));
       }
       if (state == AIConnectionState.disconnected ||
           state == AIConnectionState.failed) {
         this.visionModes.revoke();
-        unawaited(WakelockPlus.disable());
+        unawaited(_setWakelock(false));
       }
       notifyListeners();
     });
@@ -359,7 +368,7 @@ final class ConversationController extends ChangeNotifier {
     visionModes.revoke();
     lastTransmittedFrame = null;
     microphoneMuted = false;
-    unawaited(WakelockPlus.disable());
+    unawaited(_setWakelock(false));
     await provider.stopSession();
     await cameraSources.selectedSource.disconnect();
     if (!_disposed) notifyListeners();
@@ -369,7 +378,7 @@ final class ConversationController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _privacyGeneration += 1;
-    unawaited(WakelockPlus.disable());
+    unawaited(_setWakelock(false));
     visionModes.removeListener(_handleAuthorizationChanged);
     visionModes.revoke();
     if (_ownsVisionModes) visionModes.dispose();
