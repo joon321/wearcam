@@ -41,6 +41,7 @@ final class CaptureCoordinator {
   Future<void> _serial = Future.value();
   DateTime? _lastSessionCapture;
   bool _capturePending = false;
+  int _cancellationEpoch = 0;
 
   Future<CaptureResult> capture(String callId) {
     if (!_handledCalls.add(callId) || _capturePending) {
@@ -48,8 +49,13 @@ final class CaptureCoordinator {
       return Future.value(const CaptureResult(CaptureResultKind.duplicate));
     }
     _capturePending = true;
+    final queuedEpoch = _cancellationEpoch;
     final completer = Completer<CaptureResult>();
     _serial = _serial.then((_) async {
+      if (queuedEpoch != _cancellationEpoch) {
+        completer.complete(const CaptureResult(CaptureResultKind.cancelled));
+        return;
+      }
       // Read authorization only when this queued operation actually starts.
       if (_lastSessionCapture != null &&
           _now().difference(_lastSessionCapture!) < minimumSessionInterval) {
@@ -86,5 +92,8 @@ final class CaptureCoordinator {
     return completer.future.whenComplete(() => _capturePending = false);
   }
 
-  void cancel() => authorization.revoke();
+  void cancel() {
+    _cancellationEpoch += 1;
+    authorization.revoke();
+  }
 }
