@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wearcam/ai/openai_realtime_protocol.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
+import 'package:wearcam/domain/transcript_turn.dart';
 
 void main() {
   const protocol = OpenAIRealtimeProtocol();
@@ -88,17 +89,67 @@ void main() {
     });
   });
 
-  test('parses only documented transcript delta events', () {
+  test('maps input and output audio transcript lifecycle events', () {
+    final userDelta = protocol.transcriptEvents({
+      'type': 'conversation.item.input_audio_transcription.delta',
+      'item_id': 'user-1',
+      'delta': 'hello',
+    }).single;
+    expect(userDelta.turnId, 'user-1');
+    expect(userDelta.role, TranscriptRole.user);
+    expect(userDelta.delta, 'hello');
+    expect(userDelta.status, TranscriptStatus.streaming);
+
+    final assistantDone = protocol.transcriptEvents({
+      'type': 'response.output_audio_transcript.done',
+      'item_id': 'assistant-1',
+      'transcript': 'Hello there.',
+    }).single;
+    expect(assistantDone.turnId, 'assistant-1');
+    expect(assistantDone.role, TranscriptRole.assistant);
+    expect(assistantDone.completedText, 'Hello there.');
+    expect(assistantDone.status, TranscriptStatus.completed);
+
     expect(
-      protocol.transcriptDelta({
-        'type': 'response.output_audio_transcript.delta',
-        'delta': 'hello',
+      protocol.transcriptEvents({
+        'type': 'response.text.delta',
+        'item_id': 'ignored',
+        'delta': 'x',
       }),
-      'hello',
+      isEmpty,
     );
-    expect(
-      protocol.transcriptDelta({'type': 'response.text.delta', 'delta': 'x'}),
-      isNull,
-    );
+  });
+
+  test('maps new items and truncation to distinct transcript turns', () {
+    final first = protocol.transcriptEvents({
+      'type': 'response.output_item.added',
+      'item': {'id': 'assistant-1', 'role': 'assistant'},
+    }).single;
+    final second = protocol.transcriptEvents({
+      'type': 'response.output_item.added',
+      'item': {'id': 'assistant-2', 'role': 'assistant'},
+    }).single;
+    final interrupted = protocol.transcriptEvents({
+      'type': 'conversation.item.truncated',
+      'item_id': 'assistant-2',
+    }).single;
+
+    expect([first.turnId, second.turnId], ['assistant-1', 'assistant-2']);
+    expect(interrupted.status, TranscriptStatus.interrupted);
+  });
+
+  test('marks output items from a cancelled response as interrupted', () {
+    final events = protocol.transcriptEvents({
+      'type': 'response.done',
+      'response': {
+        'status': 'cancelled',
+        'output': [
+          {'id': 'assistant-1', 'role': 'assistant'},
+        ],
+      },
+    });
+
+    expect(events.single.turnId, 'assistant-1');
+    expect(events.single.status, TranscriptStatus.interrupted);
   });
 }

@@ -31,15 +31,29 @@ npm run dev
 `npm run dev` automatically loads `backend/.env` and starts the service in watch
 mode on port `8787` by default. Keep `OPENAI_API_KEY` only in that server-side
 file. Each session asks this service for a short-lived Realtime credential; the
-APK contains only the backend URL.
+APK contains only the backend URL. The backend logs safe request metadata (method,
+path, status, duration, and request ID), never authorization values, credentials,
+tokens, request bodies, or SDP.
 
 ## Mobile setup
 
 ```sh
 cd mobile
 flutter pub get
+flutter run
+```
+
+On first launch, enter the WearCam backend base URL in the setup screen. The app
+persists only that URL on the device. A build-time default remains available for
+managed/test builds, but is used only when no URL has been saved:
+
+```sh
 flutter run --dart-define=WEARCAM_BACKEND_URL=https://your-backend.example
 ```
+
+Open **Settings → Change backend** to replace the saved URL. Do not enter or pass
+a provider API key: permanent credentials remain in `backend/.env`, while the app
+receives only a short-lived Realtime credential from the backend.
 
 The Gradle wrapper JAR is intentionally not committed because the repository's PR
 transport accepts text files only. Regenerate it after installing the pinned Gradle
@@ -69,6 +83,9 @@ flutter build apk --debug \
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
 
+The dart define above is optional. Without it, the installed app asks for the URL;
+after setup, the locally saved value takes precedence over future build defaults.
+
 For local Wi-Fi testing, start the backend with the phone and computer on the same
 trusted network, allow inbound TCP port `8787` in the computer firewall, and use
 the computer's LAN address (not `localhost`):
@@ -94,12 +111,16 @@ disconnecting USB or restarting ADB.
 At first start, Android asks for camera access when the camera connects and
 microphone access when WebRTC starts. Grant both while using the app. If denied
 permanently, enable **Camera** and **Microphone** under Android Settings → Apps →
-WearCam → Permissions. The app does not request local-network discovery access;
-it makes a normal Internet connection to the configured backend.
+WearCam → Permissions. WebRTC also receives normal install-time permissions to
+read network connectivity, request network changes, and control call audio. These
+do not show runtime prompts and do not grant nearby-device discovery; the app makes
+a normal Internet connection to the configured backend.
 
-An APK built without a valid backend URL displays a setup message instead of
-crashing, but cannot start a session. Rebuild it to change the URL. Never pass
-`OPENAI_API_KEY` through `--dart-define`.
+An APK built without a backend URL opens the in-app setup screen instead of
+crashing. Use **Settings → Change backend** rather than rebuilding to update it.
+Debug builds accept HTTP for trusted local Wi-Fi or `adb reverse` testing. Profile
+and release builds require HTTPS, regardless of how the URL is supplied. Never
+pass `OPENAI_API_KEY` through `--dart-define` or enter it in the app.
 
 ## Verification
 

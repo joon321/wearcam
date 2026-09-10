@@ -15,7 +15,7 @@ void main() {
   test('rejects missing and malformed backend URLs', () {
     expect(
       BackendConfiguration.fromUrl('', allowInsecureHttp: false).error,
-      contains('WEARCAM_BACKEND_URL'),
+      contains('backend'),
     );
     expect(
       BackendConfiguration.fromUrl('not-a-url', allowInsecureHttp: false).uri,
@@ -33,6 +33,27 @@ void main() {
     expect(
       BackendConfiguration.fromUrl(localUrl, allowInsecureHttp: true).isValid,
       isTrue,
+    );
+  });
+
+  test('does not accept provider credentials as backend configuration', () {
+    expect(
+      BackendConfiguration.fromUrl('sk-no', allowInsecureHttp: false).error,
+      contains('not accepted'),
+    );
+    expect(
+      BackendConfiguration.fromUrl(
+        'https://secret@wearcam.example.com',
+        allowInsecureHttp: false,
+      ).isValid,
+      isFalse,
+    );
+    expect(
+      BackendConfiguration.fromUrl(
+        'https://wearcam.example.com?api_key=secret',
+        allowInsecureHttp: false,
+      ).isValid,
+      isFalse,
     );
   });
 }

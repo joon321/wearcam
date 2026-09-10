@@ -10,11 +10,12 @@ dependencies:
   flutter:
     sdk: flutter
   camera: ^0.11.2
-  # Pin the WebRTC version used by this physical-device prototype; pubspec.lock
-  # locks its complete transitive dependency graph.
-  flutter_webrtc: 1.2.0
+  # Keep the Android/iOS native WebRTC runtime explicit; 1.6.2 includes the
+  # current libwebrtc engine used to avoid older Android network-thread crashes.
+  flutter_webrtc: 1.6.2
   http: ^1.5.0
   image: ^4.5.4
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:

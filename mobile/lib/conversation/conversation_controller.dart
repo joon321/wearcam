@@ -1,19 +1,24 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/frame_processor.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
+import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
 final class ConversationController extends ChangeNotifier {
   ConversationController({
     required this.camera,
     required this.provider,
+    ConnectionDiagnostics? diagnostics,
     this.processor = const FrameProcessor(),
     VisionModeController? visionModes,
-  }) : visionModes = visionModes ?? VisionModeController() {
+  }) : diagnostics =
+           diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
+       visionModes = visionModes ?? VisionModeController() {
     _toolSubscription = provider.toolCalls.listen(_handleToolCall);
     _stateSubscription = provider.connectionStates.listen((state) {
       if (_disposed) return;
@@ -24,35 +29,59 @@ final class ConversationController extends ChangeNotifier {
       }
       notifyListeners();
     });
-    _transcriptSubscription = provider.transcript.listen((delta) {
+    _transcriptSubscription = provider.transcript.listen((turn) {
       if (_disposed) return;
-      transcript += delta;
+      _upsertTranscriptTurn(turn);
       notifyListeners();
     });
   }
 
   final CameraSource camera;
   final AIProvider provider;
+  final ConnectionDiagnostics diagnostics;
   final FrameProcessor processor;
   final VisionModeController visionModes;
   late final StreamSubscription<ToolCall> _toolSubscription;
   late final StreamSubscription<AIConnectionState> _stateSubscription;
-  late final StreamSubscription<String> _transcriptSubscription;
+  late final StreamSubscription<TranscriptTurn> _transcriptSubscription;
   AIConnectionState connectionState = AIConnectionState.disconnected;
   PreparedFrame? lastTransmittedFrame;
-  String transcript = '';
+  final List<TranscriptTurn> _transcriptTurns = [];
+  List<TranscriptTurn> get transcriptTurns =>
+      List.unmodifiable(_transcriptTurns);
   String? error;
   bool microphoneMuted = false;
   bool _captureInFlight = false;
   bool _disposed = false;
   int _privacyGeneration = 0;
   Completer<void>? _activeToolCall;
+  Future<void>? _stopInProgress;
+  Future<void>? _startInProgress;
+
+  bool get isStarting => _startInProgress != null;
 
   Future<void> get activeToolCallCompleted =>
       _activeToolCall?.future ?? Future<void>.value();
 
-  Future<void> start() async {
-    error = null;
+  Future<void> start() {
+    final existing = _startInProgress;
+    if (existing != null) return existing;
+    final starting = _start();
+    late final Future<void> tracked;
+    tracked = starting.whenComplete(() {
+      if (identical(_startInProgress, tracked)) {
+        _startInProgress = null;
+        if (!_disposed) notifyListeners();
+      }
+    });
+    _startInProgress = tracked;
+    notifyListeners();
+    return tracked;
+  }
+
+  Future<void> _start() async {
+    _transcriptTurns.clear();
+    notifyListeners();
     await camera.connect();
     if (_disposed) {
       await camera.disconnect();
@@ -60,13 +89,54 @@ final class ConversationController extends ChangeNotifier {
     }
     try {
       await provider.startSession();
-    } catch (_) {
-      await camera.disconnect();
-      rethrow;
+    } on ProviderConnectionException catch (failure) {
+      try {
+        await camera.disconnect();
+      } catch (cleanupError) {
+        diagnostics.record(
+          failure.stage,
+          'camera_cleanup_failed',
+          message: 'Camera cleanup failed (${cleanupError.runtimeType}).',
+        );
+      }
+      error = failure.displayMessage;
+      connectionState = AIConnectionState.disconnected;
+      notifyListeners();
+      return;
+    } catch (caught) {
+      try {
+        await camera.disconnect();
+      } catch (_) {
+        // Preserve the provider failure below; camera cleanup is best-effort.
+      }
+      error = 'connection failed (${caught.runtimeType})';
+      connectionState = AIConnectionState.disconnected;
+      notifyListeners();
+      return;
     }
     if (_disposed) return;
+    error = null;
     visionModes.startConversation();
     notifyListeners();
+  }
+
+  void _upsertTranscriptTurn(TranscriptTurn turn) {
+    final index = _transcriptTurns.indexWhere(
+      (existing) => existing.id == turn.id,
+    );
+    if (index >= 0) {
+      _transcriptTurns[index] = turn;
+      return;
+    }
+    final insertionIndex = _transcriptTurns.indexWhere(
+      (existing) => existing.createdAt.isAfter(turn.createdAt),
+    );
+    if (insertionIndex < 0) {
+      _transcriptTurns.add(turn);
+    } else {
+      _transcriptTurns.insert(insertionIndex, turn);
+    }
+    if (_transcriptTurns.length > 100) _transcriptTurns.removeAt(0);
   }
 
   Future<void> _handleToolCall(ToolCall call) async {
@@ -149,7 +219,17 @@ final class ConversationController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  Future<void> stopEverything() async {
+  Future<void> stopEverything() {
+    final existing = _stopInProgress;
+    if (existing != null) return existing;
+    final stopping = _stopEverything();
+    _stopInProgress = stopping;
+    return stopping.whenComplete(() {
+      if (identical(_stopInProgress, stopping)) _stopInProgress = null;
+    });
+  }
+
+  Future<void> _stopEverything() async {
     _privacyGeneration += 1;
     visionModes.onSessionClosed();
     lastTransmittedFrame = null;

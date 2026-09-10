@@ -1,5 +1,44 @@
 # Engineering decisions and assumptions
 
+## Runtime backend configuration
+
+- The mobile app stores only the WearCam backend base URL in platform-local
+  preferences. It never asks for or persists a permanent provider credential.
+- Resolution order is a locally saved URL first, then the optional
+  `WEARCAM_BACKEND_URL` dart define. With neither, setup is mandatory before the
+  camera, microphone, or provider runtime is constructed.
+- HTTP is accepted only when Flutter is running in debug mode. Release and profile
+  configurations require HTTPS; Android cleartext access remains isolated to the
+  debug manifest.
+- Changing the backend stops the active conversation and disconnects media before
+  returning to setup, preserving the existing Stop Looking and session privacy
+  boundaries.
+
+## Native WebRTC shutdown
+
+- WebRTC teardown is single-flight at both the conversation and provider layers.
+  Native stream, data-channel, and peer references are detached before the first
+  asynchronous close, so startup failure, repeated Stop Everything actions, and
+  widget disposal cannot close the same native object concurrently.
+- `flutter_webrtc` is pinned to 1.6.2. The second supplied tombstone's native
+  build ID confirms that engine was installed, so upgrading alone did not fix the
+  crash. The app manifest now declares the plugin's required network-state,
+  network-change, and audio-settings permissions before native WebRTC starts.
+
+## Bounded connection diagnostics
+
+- Connection startup previously awaited the credential POST, SDP POST, and native
+  WebRTC connection without application-level deadlines. A pending operation left
+  the provider in `connecting`, while the button callback discarded the thrown
+  error. This was the direct cause of the indefinite UI state.
+- Startup now has named, in-memory diagnostic stages and a 30-second overall
+  deadline, with shorter 10-second credential and 15-second SDP deadlines. Errors
+  return the UI to `disconnected` and disclose only stage, safe status, backend
+  host, HTTP status, and request ID.
+- SDP, authorization values, and credentials are excluded from diagnostic data.
+  Backend request logs similarly contain only method, URL path, status, elapsed
+  time, and request ID.
+
 ## OpenAI Realtime transport
 
 The app uses WebRTC because it provides microphone capture, remote audio playback,

@@ -64,7 +64,12 @@ test("returns only the short-lived credential and never the permanent key", asyn
     session: {
       type: "realtime",
       model: "gpt-realtime",
-      audio: { output: { voice: "marin" } },
+      audio: {
+        input: {
+          transcription: { model: "gpt-4o-mini-transcribe" },
+        },
+        output: { voice: "marin" },
+      },
       instructions:
         "You are WearCam, a concise spoken assistant. When the user refers to their current surroundings, says the view changed, or asks a visual question, call get_current_view. Never answer a current visual question from a stale image. Explain that Stop looking immediately disables images.",
       tools: [
@@ -110,4 +115,71 @@ test("health does not need provider access", async () => {
       assert.deepEqual(await response.json(), { status: "ok" });
     },
   );
+});
+
+test("logs only safe request metadata after the response", async () => {
+  const logs: Array<{
+    requestId: string;
+    method: string;
+    path: string;
+    status: number;
+    durationMs: number;
+  }> = [];
+  const server = createApp(config, {
+    fetch: async () => {
+      throw new Error("must not run");
+    },
+    requestLog: (entry) => logs.push(entry),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/health?token=must-not-be-logged`,
+      { headers: { authorization: `Bearer ${permanentKey}` } },
+    );
+    await response.text();
+    assert.equal(response.headers.get("x-request-id"), logs[0]?.requestId);
+    assert.deepEqual(logs, [
+      {
+        requestId: logs[0]?.requestId,
+        method: "GET",
+        path: "/health",
+        status: 404,
+        durationMs: logs[0]?.durationMs,
+      },
+    ]);
+    const serialized = JSON.stringify(logs);
+    assert.equal(serialized.includes(permanentKey), false);
+    assert.equal(serialized.includes("must-not-be-logged"), false);
+    assert.equal(typeof logs[0]?.durationMs, "number");
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("contains request logger failures after completing a response", async () => {
+  const server = createApp(config, {
+    fetch: async () => {
+      throw new Error("must not run");
+    },
+    requestLog: () => {
+      throw new Error("logger failed");
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: "ok" });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
 });

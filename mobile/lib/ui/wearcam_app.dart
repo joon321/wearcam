@@ -1,51 +1,37 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/phone_camera_source.dart';
 import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
+import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
-final class WearCamConfigurationError extends StatelessWidget {
-  const WearCamConfigurationError({required this.message, super.key});
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'WearCam configuration',
-    theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
-    home: Scaffold(
-      appBar: AppBar(title: const Text('WearCam setup required')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.settings_ethernet, size: 48),
-            const SizedBox(height: 16),
-            Text(message, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            const SelectableText(
-              'No API key belongs in the app. Configure only the URL of a '
-              'WearCam backend that issues temporary Realtime credentials, '
-              'then rebuild the APK.',
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
 final class WearCamApp extends StatelessWidget {
-  const WearCamApp({required this.camera, required this.controller, super.key});
+  const WearCamApp({
+    required this.camera,
+    required this.controller,
+    required this.diagnostics,
+    required this.onChangeBackend,
+    super.key,
+  });
   final PhoneCameraSource camera;
   final ConversationController controller;
+  final ConnectionDiagnostics diagnostics;
+  final Future<void> Function() onChangeBackend;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'WearCam',
     theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
-    home: WearCamHome(camera: camera, controller: controller),
+    home: WearCamHome(
+      camera: camera,
+      controller: controller,
+      diagnostics: diagnostics,
+      onChangeBackend: onChangeBackend,
+    ),
   );
 }
 
@@ -53,10 +39,14 @@ final class WearCamHome extends StatefulWidget {
   const WearCamHome({
     required this.camera,
     required this.controller,
+    required this.diagnostics,
+    required this.onChangeBackend,
     super.key,
   });
   final PhoneCameraSource camera;
   final ConversationController controller;
+  final ConnectionDiagnostics diagnostics;
+  final Future<void> Function() onChangeBackend;
 
   @override
   State<WearCamHome> createState() => _WearCamHomeState();
@@ -71,7 +61,10 @@ final class _WearCamHomeState extends State<WearCamHome> {
       _Home(controller: widget.controller),
       _Camera(camera: widget.camera),
       _Conversation(controller: widget.controller),
-      const _Settings(),
+      _Settings(
+        onChangeBackend: widget.onChangeBackend,
+        diagnostics: widget.diagnostics,
+      ),
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('WearCam Bridge')),
@@ -119,7 +112,8 @@ final class _Home extends StatelessWidget {
         ),
         FilledButton.icon(
           onPressed:
-              controller.connectionState == AIConnectionState.disconnected
+              controller.connectionState == AIConnectionState.disconnected &&
+                  !controller.isStarting
               ? controller.start
               : null,
           icon: const Icon(Icons.play_arrow),
@@ -139,8 +133,27 @@ final class _Home extends StatelessWidget {
           icon: const Icon(Icons.stop_circle_outlined),
           label: const Text('Stop everything'),
         ),
-        if (controller.error != null)
+        if (controller.error != null) ...[
           Text(controller.error!, style: const TextStyle(color: Colors.red)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              FilledButton.tonal(
+                key: const Key('retry-connection'),
+                onPressed: controller.isStarting ? null : controller.start,
+                child: const Text('Retry'),
+              ),
+              OutlinedButton(
+                key: const Key('copy-diagnostics'),
+                onPressed: () => Clipboard.setData(
+                  ClipboardData(text: controller.diagnostics.copyText),
+                ),
+                child: const Text('Copy diagnostics'),
+              ),
+            ],
+          ),
+        ],
       ],
     ),
   );
@@ -178,15 +191,51 @@ final class _Camera extends StatelessWidget {
   }
 }
 
-final class _Conversation extends StatelessWidget {
+final class _Conversation extends StatefulWidget {
   const _Conversation({required this.controller});
   final ConversationController controller;
+
+  @override
+  State<_Conversation> createState() => _ConversationState();
+}
+
+final class _ConversationState extends State<_Conversation> {
+  final ScrollController _scrollController = ScrollController();
+  String? _latestTurnSignature;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToLatest(List<TranscriptTurn> turns) {
+    final latest = turns.lastOrNull;
+    final signature = latest == null
+        ? null
+        : '${latest.id}:${latest.text.length}:${latest.status.name}';
+    if (signature == _latestTurnSignature) return;
+    _latestTurnSignature = signature;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: controller,
+    animation: widget.controller,
     builder: (context, _) {
+      final controller = widget.controller;
       final frame = controller.lastTransmittedFrame;
+      final turns = controller.transcriptTurns;
+      _scrollToLatest(turns);
       return ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
           if (controller.visionModes.mode != VisionMode.off)
@@ -197,11 +246,11 @@ final class _Conversation extends StatelessWidget {
               ),
             ),
           Text('Transcript', style: Theme.of(context).textTheme.titleLarge),
-          SelectableText(
-            controller.transcript.isEmpty
-                ? 'Waiting for speech…'
-                : controller.transcript,
-          ),
+          const SizedBox(height: 8),
+          if (turns.isEmpty)
+            const Text('Waiting for speech…')
+          else
+            for (final turn in turns) _TranscriptBubble(turn: turn),
           const SizedBox(height: 16),
           Text(
             'Last image transmitted',
@@ -232,22 +281,136 @@ final class _Conversation extends StatelessWidget {
   );
 }
 
+final class _TranscriptBubble extends StatelessWidget {
+  const _TranscriptBubble({required this.turn});
+
+  final TranscriptTurn turn;
+
+  @override
+  Widget build(BuildContext context) {
+    final isUser = turn.role == TranscriptRole.user;
+    final colors = Theme.of(context).colorScheme;
+    return Align(
+      key: ValueKey('transcript-turn-${turn.id}'),
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 520),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isUser ? colors.primaryContainer : colors.secondaryContainer,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isUser ? 'You' : 'WearCam',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            if (turn.text.isNotEmpty) SelectableText(turn.text),
+            if (turn.status == TranscriptStatus.streaming)
+              const Text('Speaking…', key: Key('streaming-turn-status')),
+            if (turn.status == TranscriptStatus.interrupted)
+              const Text('Interrupted', key: Key('interrupted-turn-status')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 final class _Settings extends StatelessWidget {
-  const _Settings();
+  const _Settings({required this.onChangeBackend, required this.diagnostics});
+  final Future<void> Function() onChangeBackend;
+  final ConnectionDiagnostics diagnostics;
+
   @override
   Widget build(BuildContext context) => ListView(
-    children: const [
-      ListTile(title: Text('Provider'), subtitle: Text('OpenAI Realtime')),
-      ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
-      ListTile(title: Text('Long edge'), subtitle: Text('1280 px maximum')),
+    children: [
+      const ListTile(
+        title: Text('Provider'),
+        subtitle: Text('OpenAI Realtime'),
+      ),
       ListTile(
+        key: const Key('change-backend-action'),
+        leading: const Icon(Icons.settings_ethernet),
+        title: const Text('Change backend'),
+        subtitle: const Text('Update the saved WearCam backend URL'),
+        onTap: () => handleChangeBackend(onChangeBackend, diagnostics),
+      ),
+      if (kDebugMode)
+        ListTile(
+          key: const Key('connection-diagnostics-action'),
+          leading: const Icon(Icons.bug_report_outlined),
+          title: const Text('Connection diagnostics'),
+          subtitle: const Text('Debug-only sanitized connection timeline'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => _DiagnosticsScreen(diagnostics: diagnostics),
+            ),
+          ),
+        ),
+      const ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
+      const ListTile(
+        title: Text('Long edge'),
+        subtitle: Text('1280 px maximum'),
+      ),
+      const ListTile(
         title: Text('Retention'),
         subtitle: Text('In memory until session stop'),
       ),
-      ListTile(
+      const ListTile(
         title: Text('Guidance'),
         subtitle: Text('Planned for Milestone 3'),
       ),
     ],
+  );
+}
+
+@visibleForTesting
+Future<void> handleChangeBackend(
+  Future<void> Function() onChangeBackend,
+  ConnectionDiagnostics diagnostics,
+) async {
+  try {
+    await onChangeBackend();
+  } catch (error) {
+    diagnostics.record(
+      ConnectionStage.readBackendConfiguration,
+      'previous_session_cleanup_failed',
+      message:
+          'Backend setup opened after cleanup failed (${error.runtimeType}).',
+    );
+  }
+}
+
+final class _DiagnosticsScreen extends StatelessWidget {
+  const _DiagnosticsScreen({required this.diagnostics});
+  final ConnectionDiagnostics diagnostics;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Connection diagnostics'),
+      actions: [
+        IconButton(
+          tooltip: 'Copy diagnostics',
+          onPressed: () =>
+              Clipboard.setData(ClipboardData(text: diagnostics.copyText)),
+          icon: const Icon(Icons.copy),
+        ),
+      ],
+    ),
+    body: AnimatedBuilder(
+      animation: diagnostics,
+      builder: (context, _) => ListView.builder(
+        itemCount: diagnostics.entries.length,
+        itemBuilder: (context, index) => ListTile(
+          title: Text(diagnostics.entries[index].stage.wireName),
+          subtitle: Text(diagnostics.entries[index].summary),
+        ),
+      ),
+    ),
   );
 }
