@@ -48,6 +48,7 @@ final class CaptureCoordinator {
     }
     final completer = Completer<CaptureResult>();
     _serial = _serial.then((_) async {
+      // Read authorization only when this queued operation actually starts.
       final session = authorization.mode == VisionMode.visualSession;
       if (session &&
           _lastSessionCapture != null &&
@@ -78,12 +79,12 @@ final class CaptureCoordinator {
           CaptureResult(CaptureResultKind.sent, frame: prepared),
         );
       } catch (_) {
-        if (!session) authorization.revoke(VisionEndReason.captureFailed);
+        if (!session) authorization.revoke();
         completer.complete(const CaptureResult(CaptureResultKind.failed));
       }
     });
     return completer.future;
   }
 
-  void cancel() => authorization.revoke(VisionEndReason.stoppedByUser);
+  void cancel() => authorization.revoke();
 }

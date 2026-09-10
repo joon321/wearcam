@@ -8,6 +8,7 @@ final class PhoneCameraSource implements CameraSource {
   CameraController? _controller;
   CameraLensDirection _preferredLens = CameraLensDirection.back;
   CameraStatus _connectionState = CameraStatus.disconnected;
+  Future<void> _operations = Future<void>.value();
 
   @override
   String get id => 'phone-camera';
@@ -24,20 +25,23 @@ final class PhoneCameraSource implements CameraSource {
   );
   CameraLensDirection get preferredLens => _preferredLens;
 
-  Future<void> selectLens(CameraLensDirection direction) async {
+  Future<void> selectLens(CameraLensDirection direction) => _enqueue(() async {
+    if (_preferredLens == direction) return;
+    final reconnect = _controller != null;
+    if (reconnect) await _disconnect();
     _preferredLens = direction;
-    if (_controller != null) {
-      await disconnect();
-      await connect();
-    }
-  }
+    if (reconnect) await _connect();
+  });
 
   CameraController? get controller => _controller;
   @override
   Stream<CameraStatus> get status => _status.stream;
 
   @override
-  Future<void> connect() async {
+  Future<void> connect() => _enqueue(_connect);
+
+  Future<void> _connect() async {
+    if (_controller != null) return;
     _connectionState = CameraStatus.connecting;
     _status.add(CameraStatus.connecting);
     try {
@@ -78,18 +82,33 @@ final class PhoneCameraSource implements CameraSource {
       capturedAt: DateTime.now().toUtc(),
       width: size?.height.round() ?? 0,
       height: size?.width.round() ?? 0,
-      sourceId: 'phone-${_preferredLens.name}:${controller.description.name}',
+      sourceId:
+          'phone-${controller.description.lensDirection.name}:${controller.description.name}',
       orientation: FrameOrientation.portraitUp,
       sharpnessScore: 0,
     );
   }
 
   @override
-  Future<void> disconnect() async {
+  Future<void> disconnect() => _enqueue(_disconnect);
+
+  Future<void> _disconnect() async {
     final controller = _controller;
     _controller = null;
     await controller?.dispose();
     _connectionState = CameraStatus.disconnected;
     _status.add(CameraStatus.disconnected);
+  }
+
+  Future<T> _enqueue<T>(Future<T> Function() operation) {
+    final completer = Completer<T>();
+    _operations = _operations.then((_) async {
+      try {
+        completer.complete(await operation());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
   }
 }

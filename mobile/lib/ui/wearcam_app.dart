@@ -237,6 +237,7 @@ final class _ConversationState extends State<_Conversation> {
     animation: widget.controller,
     builder: (context, _) {
       final controller = widget.controller;
+      final visionMode = controller.visionModes.mode;
       final frame = controller.lastTransmittedFrame;
       final turns = controller.transcriptTurns;
       _scrollToLatest(turns);
@@ -244,11 +245,11 @@ final class _ConversationState extends State<_Conversation> {
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
-          if (controller.visionModes.mode != VisionMode.off)
+          if (visionMode != VisionMode.off)
             Card(
               child: ListTile(
                 leading: const Icon(Icons.visibility, color: Colors.green),
-                title: Text(controller.visionStatus),
+                title: Text(controller.visionStatusFor(visionMode)),
               ),
             ),
           if (controller.isPositioning)

@@ -23,6 +23,7 @@ void main() {
       final controller = ConversationController(
         camera: camera,
         provider: provider,
+        minimumSessionCaptureInterval: Duration.zero,
       );
       await controller.start();
       controller.startVisualSession();
@@ -37,7 +38,6 @@ void main() {
         isTrue,
       );
 
-      await Future<void>.delayed(const Duration(seconds: 2));
       provider.issueToolCall('call-2');
       await provider.completed.where((id) => id == 'call-2').first;
       await controller.activeToolCallCompleted;
@@ -128,7 +128,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(controller.visionModes.mode, VisionMode.oneLook);
       // Replayed transcript IDs cannot grant fresh authorization.
-      controller.visionModes.revoke(VisionEndReason.completed);
+      controller.visionModes.revoke();
       provider.emitTranscript(
         _completedTurn('user-ready', TranscriptRole.user, 'Ready.'),
       );
@@ -178,6 +178,92 @@ void main() {
       controller.dispose();
     },
   );
+
+  test(
+    'unrelated user speech clears pending approval but preserves a session',
+    () async {
+      final provider = FakeProvider();
+      final controller = ConversationController(
+        camera: FakeCamera(),
+        provider: provider,
+      );
+      controller.startVisualSession();
+      provider.emitTranscript(
+        _completedTurn(
+          'unrelated',
+          TranscriptRole.user,
+          'Tell me about plumbing.',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.visionModes.mode, VisionMode.visualSession);
+      controller.dispose();
+    },
+  );
+
+  test('new sessions may process reused transcript turn identifiers', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+    );
+    await controller.start();
+    provider.emitTranscript(
+      _completedTurn('session-turn', TranscriptRole.user, 'Look at this.'),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.mode, VisionMode.oneLook);
+    controller.visionModes.revoke();
+
+    await controller.start();
+    provider.emitTranscript(
+      _completedTurn('session-turn', TranscriptRole.user, 'Look at this.'),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.mode, VisionMode.oneLook);
+    controller.dispose();
+  });
+
+  test('camera status monitoring follows the newly selected source', () async {
+    final first = FakeCamera(id: 'first');
+    final second = FakeCamera(id: 'second');
+    expect(() => CameraSourceManager(sources: const []), throwsArgumentError);
+    expect(
+      () => CameraSourceManager(sources: [first], selectedId: 'missing'),
+      throwsArgumentError,
+    );
+    final manager = CameraSourceManager(sources: [first, second]);
+    final controller = ConversationController(
+      camera: first,
+      cameraSources: manager,
+      provider: FakeProvider(),
+    );
+    controller.startVisualSession();
+    manager.select('second');
+    await Future<void>.delayed(Duration.zero);
+    second.emitStatus(CameraStatus.failed);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.visionModes.mode, VisionMode.off);
+    controller.dispose();
+  });
+
+  test('Capture now reports a rate-limited result to the user', () async {
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: FakeCamera(),
+      provider: provider,
+      minimumSessionCaptureInterval: const Duration(minutes: 1),
+    );
+    await controller.start();
+    controller.startVisualSession();
+    provider.issueToolCall('first-session-view');
+    await provider.completed.where((id) => id == 'first-session-view').first;
+
+    await controller.captureNow();
+
+    expect(controller.error, 'Please wait before capturing again');
+    controller.dispose();
+  });
 
   test('disconnects camera when provider startup fails', () async {
     final camera = FakeCamera();
@@ -554,14 +640,19 @@ TranscriptTurn _completedTurn(String id, TranscriptRole role, String text) =>
     );
 
 final class FakeCamera implements CameraSource {
-  FakeCamera({this.captureGate, this.connectGate, this.failDisconnect = false});
+  FakeCamera({
+    this.captureGate,
+    this.connectGate,
+    this.failDisconnect = false,
+    this.id = 'fake-camera',
+  });
   final Future<void>? captureGate;
   final Future<void>? connectGate;
   final bool failDisconnect;
   final _status = StreamController<CameraStatus>.broadcast();
   CameraStatus _connectionState = CameraStatus.disconnected;
   @override
-  String get id => 'fake-camera';
+  final String id;
   @override
   String get displayName => 'Fake camera';
   @override
@@ -573,6 +664,11 @@ final class FakeCamera implements CameraSource {
   );
   @override
   CameraStatus get connectionState => _connectionState;
+  void emitStatus(CameraStatus state) {
+    _connectionState = state;
+    _status.add(state);
+  }
+
   int captureCount = 0;
   int connectCount = 0;
   int disconnectCount = 0;

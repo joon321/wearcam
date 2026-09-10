@@ -22,6 +22,7 @@ final class ConversationController extends ChangeNotifier {
   }) : diagnostics =
            diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
        visionModes = visionModes ?? VisionAuthorizationController(),
+       _ownsVisionModes = visionModes == null,
        cameraSources = cameraSources ?? CameraSourceManager(sources: [camera]) {
     captureCoordinator = CaptureCoordinator(
       sources: this.cameraSources,
@@ -30,26 +31,17 @@ final class ConversationController extends ChangeNotifier {
       minimumSessionInterval: minimumSessionCaptureInterval,
     );
     _toolSubscription = provider.toolCalls.listen(_handleToolCall);
-    _cameraSubscription = this.cameraSources.selectedSource.status.listen((
-      state,
-    ) {
-      debugPrint('WearCam camera connection state: ${state.name}');
-      if (state == CameraStatus.disconnected || state == CameraStatus.failed) {
-        this.visionModes.revoke(VisionEndReason.cameraDisconnected);
-        _privacyGeneration += 1;
-        if (!_disposed) notifyListeners();
-      }
-    });
+    _bindCameraStatus(this.cameraSources.selectedSource);
+    _cameraSelectionSubscription = this.cameraSources.selectionChanges.listen(
+      _bindCameraStatus,
+    );
+    this.visionModes.addListener(_handleAuthorizationChanged);
     _stateSubscription = provider.connectionStates.listen((state) {
       if (_disposed) return;
       connectionState = state;
       if (state == AIConnectionState.disconnected ||
           state == AIConnectionState.failed) {
-        this.visionModes.revoke(
-          state == AIConnectionState.failed
-              ? VisionEndReason.providerFailure
-              : VisionEndReason.conversationEnded,
-        );
+        this.visionModes.revoke();
       }
       notifyListeners();
     });
@@ -61,15 +53,33 @@ final class ConversationController extends ChangeNotifier {
     });
   }
 
+  void _bindCameraStatus(CameraSource source) {
+    unawaited(_cameraSubscription?.cancel());
+    _cameraSubscription = source.status.listen((state) {
+      debugPrint('WearCam camera connection state: ${state.name}');
+      if (state == CameraStatus.disconnected || state == CameraStatus.failed) {
+        visionModes.revoke();
+        _privacyGeneration += 1;
+        if (!_disposed) notifyListeners();
+      }
+    });
+  }
+
+  void _handleAuthorizationChanged() {
+    if (!_disposed) notifyListeners();
+  }
+
   final CameraSource camera;
   final AIProvider provider;
   final ConnectionDiagnostics diagnostics;
   final FrameProcessor processor;
   final VisionAuthorizationController visionModes;
+  final bool _ownsVisionModes;
   final CameraSourceManager cameraSources;
   late final CaptureCoordinator captureCoordinator;
   late final StreamSubscription<ToolCall> _toolSubscription;
-  late final StreamSubscription<CameraStatus> _cameraSubscription;
+  StreamSubscription<CameraStatus>? _cameraSubscription;
+  late final StreamSubscription<CameraSource> _cameraSelectionSubscription;
   late final StreamSubscription<AIConnectionState> _stateSubscription;
   late final StreamSubscription<TranscriptTurn> _transcriptSubscription;
   AIConnectionState connectionState = AIConnectionState.disconnected;
@@ -87,7 +97,8 @@ final class ConversationController extends ChangeNotifier {
 
   bool get isStarting => _startInProgress != null;
   bool get isPositioning => visionModes.mode == VisionMode.oneLook;
-  String get visionStatus => switch (visionModes.mode) {
+  String get visionStatus => visionStatusFor(visionModes.mode);
+  String visionStatusFor(VisionMode mode) => switch (mode) {
     VisionMode.off =>
       visionModes.pendingScope == null
           ? 'Vision off'
@@ -117,6 +128,7 @@ final class ConversationController extends ChangeNotifier {
 
   Future<void> _start() async {
     _transcriptTurns.clear();
+    _processedTranscriptIds.clear();
     notifyListeners();
     debugPrint(
       'WearCam camera source selected: ${cameraSources.selectedSource.id}',
@@ -184,11 +196,7 @@ final class ConversationController extends ChangeNotifier {
       return;
     }
     if (_isStopLooking(text) || _isRejection(text)) {
-      visionModes.revoke(
-        _isRejection(text)
-            ? VisionEndReason.rejected
-            : VisionEndReason.stoppedByUser,
-      );
+      visionModes.revoke();
       debugPrint('WearCam visual authorization cancelled by user');
     } else if (_directSessionRequest(text)) {
       visionModes.authorizeDirectVisualSession();
@@ -201,7 +209,7 @@ final class ConversationController extends ChangeNotifier {
       debugPrint('WearCam pending visual authorization approved');
     } else if (!_isApproval(text)) {
       // An unrelated turn breaks the immediate contextual confirmation chain.
-      visionModes.reject();
+      visionModes.clearPending();
     }
   }
 
@@ -354,10 +362,14 @@ final class ConversationController extends ChangeNotifier {
     final result = await captureCoordinator.capture(
       'capture-now-${DateTime.now().microsecondsSinceEpoch}',
     );
-    if (result.kind != CaptureResultKind.sent ||
-        result.frame == null ||
-        generation != _privacyGeneration ||
-        _disposed) {
+    if (result.kind != CaptureResultKind.sent || result.frame == null) {
+      if (!_disposed && generation == _privacyGeneration) {
+        error = _captureFailureMessage(result.kind);
+        notifyListeners();
+      }
+      return;
+    }
+    if (generation != _privacyGeneration || _disposed) {
       return;
     }
     await provider.sendImage(
@@ -370,6 +382,14 @@ final class ConversationController extends ChangeNotifier {
     lastTransmittedFrame = result.frame;
     notifyListeners();
   }
+
+  String _captureFailureMessage(CaptureResultKind kind) => switch (kind) {
+    CaptureResultKind.permissionRequired => 'Permission required',
+    CaptureResultKind.duplicate => 'Duplicate capture request',
+    CaptureResultKind.rateLimited => 'Please wait before capturing again',
+    CaptureResultKind.cancelled => 'Capture cancelled',
+    _ => 'Fresh frame unavailable',
+  };
 
   Future<void> toggleMute() async {
     microphoneMuted = !microphoneMuted;
@@ -389,7 +409,7 @@ final class ConversationController extends ChangeNotifier {
 
   Future<void> _stopEverything() async {
     _privacyGeneration += 1;
-    visionModes.revoke(VisionEndReason.conversationEnded);
+    visionModes.revoke();
     lastTransmittedFrame = null;
     microphoneMuted = false;
     await provider.stopSession();
@@ -401,9 +421,12 @@ final class ConversationController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _privacyGeneration += 1;
-    visionModes.revoke(VisionEndReason.disposed);
+    visionModes.removeListener(_handleAuthorizationChanged);
+    visionModes.revoke();
+    if (_ownsVisionModes) visionModes.dispose();
     unawaited(_toolSubscription.cancel());
-    unawaited(_cameraSubscription.cancel());
+    unawaited(_cameraSubscription?.cancel());
+    unawaited(_cameraSelectionSubscription.cancel());
     unawaited(_stateSubscription.cancel());
     unawaited(_transcriptSubscription.cancel());
     super.dispose();

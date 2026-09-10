@@ -2,6 +2,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
 void main() {
+  test(
+    'expiration notifies listeners without requiring a getter read',
+    () async {
+      final authorization = VisionAuthorizationController();
+      var notifications = 0;
+      authorization.addListener(() => notifications += 1);
+      authorization.authorizeDirectOneLook(
+        window: const Duration(milliseconds: 10),
+      );
+      final afterAuthorization = notifications;
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(notifications, greaterThan(afterAuthorization));
+      expect(authorization.mode, VisionMode.off);
+      authorization.dispose();
+    },
+  );
+
   test('One Look is consumed exactly once and expires', () {
     var now = DateTime.utc(2026);
     final authorization = VisionAuthorizationController(now: () => now);
@@ -26,7 +43,7 @@ void main() {
     expect(authorization.mode, VisionMode.off);
     expect(authorization.handleContextualApproval('user-1'), isTrue);
     expect(authorization.mode, VisionMode.visualSession);
-    authorization.revoke(VisionEndReason.stoppedByUser);
+    authorization.revoke();
     authorization.recommend(
       VisualRecommendation.oneLook,
       assistantTurnId: 'assistant-2',
@@ -44,6 +61,10 @@ void main() {
     expect(
       authorization.remainsValid(generation!, sessionCapture: false),
       isTrue,
+    );
+    expect(
+      authorization.remainsValid(generation, sessionCapture: true),
+      isFalse,
     );
     expect(authorization.isVisualSessionActive, isFalse);
   });

@@ -14,4 +14,12 @@ void main() {
       expect(source.displayName, 'Phone camera');
     },
   );
+
+  test('concurrent lens selections are applied in call order', () async {
+    final source = PhoneCameraSource();
+    final front = source.selectLens(CameraLensDirection.front);
+    final back = source.selectLens(CameraLensDirection.back);
+    await Future.wait([front, back]);
+    expect(source.preferredLens, CameraLensDirection.back);
+  });
 }
