@@ -17,6 +17,8 @@ Future<void> _setWakelock(bool enabled) async {
     await (enabled ? WakelockPlus.enable() : WakelockPlus.disable());
   } on PlatformException {
     debugPrint('WearCam wakelock unavailable on this platform');
+  } on MissingPluginException {
+    debugPrint('WearCam wakelock plugin not registered on this platform');
   }
 }
 
@@ -224,9 +226,7 @@ final class ConversationController extends ChangeNotifier
       debugPrint('WearCam visual access stopped by user');
     } else if (_isResumeLooking(text) || _directLookRequest(text)) {
       visionModes.enable();
-      unawaited(provider.sendText(
-        'Looking is back on. You can use the camera again when it would help.',
-      ));
+      unawaited(_notifyVisionResumed());
       debugPrint('WearCam visual access resumed by user');
     }
   }
@@ -361,9 +361,17 @@ final class ConversationController extends ChangeNotifier
   Future<void> resumeLooking() async {
     visionModes.enable();
     notifyListeners();
-    await provider.sendText(
-      'Looking is back on. You can use the camera again when it would help.',
-    );
+    await _notifyVisionResumed();
+  }
+
+  Future<void> _notifyVisionResumed() async {
+    try {
+      await provider.sendText(
+        'Looking is back on. You can use the camera again when it would help.',
+      );
+    } catch (e) {
+      debugPrint('WearCam failed to notify AI of vision resume: $e');
+    }
   }
 
   Future<void> toggleMute() async {

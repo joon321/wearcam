@@ -201,7 +201,13 @@ final class _Camera extends StatelessWidget {
                       : CameraLensDirection.front,
                 );
               } catch (_) {
-                // Camera state rolls back inside selectLens on failure.
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Could not switch camera lens.'),
+                    ),
+                  );
+                }
               }
             },
           ),

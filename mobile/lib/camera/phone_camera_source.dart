@@ -36,6 +36,11 @@ final class PhoneCameraSource implements CameraSource {
         await _connect();
       } catch (_) {
         _preferredLens = previousLens;
+        try {
+          await _connect();
+        } catch (_) {
+          // Best-effort fallback; rethrow the original failure.
+        }
         rethrow;
       }
     }
