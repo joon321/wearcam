@@ -56,6 +56,7 @@ final class WearCamHome extends StatefulWidget {
 final class _WearCamHomeState extends State<WearCamHome> {
   int index = 0;
   CaptureState _lastCaptureState = CaptureState.idle;
+  int _lastTranscriptCount = 0;
 
   @override
   void initState() {
@@ -79,6 +80,12 @@ final class _WearCamHomeState extends State<WearCamHome> {
       setState(() => index = 2);
     }
     _lastCaptureState = current;
+
+    final transcriptCount = widget.controller.transcriptTurns.length;
+    if (transcriptCount > _lastTranscriptCount && index == 0) {
+      setState(() => index = 2);
+    }
+    _lastTranscriptCount = transcriptCount;
   }
 
   @override
