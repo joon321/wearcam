@@ -177,7 +177,7 @@ void main() {
         provider.outputs['disabled']?['error'],
         containsPair('code', 'vision_disabled'),
       );
-      controller.resumeLooking();
+      await controller.resumeLooking();
       provider.issueToolCall('resumed');
       await provider.completed.where((id) => id == 'resumed').first;
       expect(camera.captureCount, 1);
