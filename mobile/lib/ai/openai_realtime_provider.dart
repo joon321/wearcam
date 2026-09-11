@@ -38,6 +38,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
   RealtimeConnection? _connection;
   bool _microphoneMuted = false;
   Future<void>? _stopInProgress;
+  Completer<void>? _sessionReady;
   final Map<String, TranscriptTurn> _transcriptTurns = {};
   static const _maximumTranscriptTurns = 100;
   ConnectionStage _stage = ConnectionStage.readBackendConfiguration;
@@ -95,6 +96,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   Future<void> _start() async {
     final temporaryCredential = await _credentials();
+    _sessionReady = Completer<void>();
     final connection = _connectionFactory(_handleEvent);
     _connection = connection;
     await _runStage(
@@ -247,6 +249,11 @@ final class OpenAIRealtimeProvider implements AIProvider {
   void _handleEvent(String wire) {
     final event = _protocol.decodeEvent(wire);
     if (event == null) return;
+    final type = event['type'];
+    if (type == 'session.created' || type == 'session.updated') {
+      final ready = _sessionReady;
+      if (ready != null && !ready.isCompleted) ready.complete();
+    }
     for (final transcriptEvent in _protocol.transcriptEvents(event)) {
       _handleTranscriptEvent(transcriptEvent);
     }
@@ -309,6 +316,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   @override
   Future<void> sendGreeting(String text) async {
+    await _sessionReady?.future;
     _send(_protocol.greetingRequest(text));
   }
 
@@ -358,6 +366,11 @@ final class OpenAIRealtimeProvider implements AIProvider {
     // it must never close the same WebRTC object twice.
     final connection = _connection;
     _connection = null;
+    final ready = _sessionReady;
+    _sessionReady = null;
+    if (ready != null && !ready.isCompleted) {
+      ready.complete();
+    }
     try {
       await connection?.stop();
     } finally {
