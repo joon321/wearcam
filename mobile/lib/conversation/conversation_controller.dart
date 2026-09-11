@@ -225,6 +225,9 @@ final class ConversationController extends ChangeNotifier
       debugPrint('WearCam visual access stopped by user');
     } else if (_isResumeLooking(text) || _directLookRequest(text)) {
       visionModes.enable();
+      unawaited(provider.sendText(
+        'Looking is back on. You can use the camera again when it would help.',
+      ));
       debugPrint('WearCam visual access resumed by user');
     }
   }
@@ -356,9 +359,12 @@ final class ConversationController extends ChangeNotifier
     );
   }
 
-  void resumeLooking() {
+  Future<void> resumeLooking() async {
     visionModes.enable();
     notifyListeners();
+    await provider.sendText(
+      'Looking is back on. You can use the camera again when it would help.',
+    );
   }
 
   Future<void> toggleMute() async {
