@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/services.dart';
 import 'package:wearcam/domain/camera_source.dart';
 
 final class PhoneCameraSource implements CameraSource {
@@ -85,22 +86,35 @@ final class PhoneCameraSource implements CameraSource {
     if (controller == null || !controller.value.isInitialized) {
       throw StateError('Phone camera is not connected');
     }
-    // Timestamp immediately after plugin capture completion: no preview/cached
-    // frame is used.
     final file = await controller.takePicture();
     final bytes = await file.readAsBytes();
     final size = controller.value.previewSize;
+    final deviceOrientation = controller.value.deviceOrientation;
+    final isLandscape = deviceOrientation == DeviceOrientation.landscapeLeft ||
+        deviceOrientation == DeviceOrientation.landscapeRight;
     return CameraFrame(
       jpegBytes: bytes,
       capturedAt: DateTime.now().toUtc(),
-      width: size?.height.round() ?? 0,
-      height: size?.width.round() ?? 0,
+      width: isLandscape
+          ? (size?.width.round() ?? 0)
+          : (size?.height.round() ?? 0),
+      height: isLandscape
+          ? (size?.height.round() ?? 0)
+          : (size?.width.round() ?? 0),
       sourceId:
           'phone-${controller.description.lensDirection.name}:${controller.description.name}',
-      orientation: FrameOrientation.portraitUp,
+      orientation: _mapOrientation(deviceOrientation),
       sharpnessScore: 0,
     );
   }
+
+  static FrameOrientation _mapOrientation(DeviceOrientation orientation) =>
+      switch (orientation) {
+        DeviceOrientation.portraitUp => FrameOrientation.portraitUp,
+        DeviceOrientation.portraitDown => FrameOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft => FrameOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight => FrameOrientation.landscapeRight,
+      };
 
   @override
   Future<void> disconnect() => _enqueue(_disconnect);
