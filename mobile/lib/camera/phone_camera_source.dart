@@ -29,8 +29,16 @@ final class PhoneCameraSource implements CameraSource {
     if (_preferredLens == direction) return;
     final reconnect = _controller != null;
     if (reconnect) await _disconnect();
+    final previousLens = _preferredLens;
     _preferredLens = direction;
-    if (reconnect) await _connect();
+    if (reconnect) {
+      try {
+        await _connect();
+      } catch (_) {
+        _preferredLens = previousLens;
+        rethrow;
+      }
+    }
   });
 
   CameraController? get controller => _controller;

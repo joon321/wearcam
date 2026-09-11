@@ -193,11 +193,17 @@ final class _Camera extends StatelessWidget {
           trailing: IconButton(
             tooltip: isFront ? 'Switch to rear camera' : 'Switch to front camera',
             icon: const Icon(Icons.cameraswitch),
-            onPressed: () => camera.selectLens(
-              isFront
-                  ? CameraLensDirection.back
-                  : CameraLensDirection.front,
-            ),
+            onPressed: () async {
+              try {
+                await camera.selectLens(
+                  isFront
+                      ? CameraLensDirection.back
+                      : CameraLensDirection.front,
+                );
+              } catch (_) {
+                // Camera state rolls back inside selectLens on failure.
+              }
+            },
           ),
         ),
         const MaterialBanner(
