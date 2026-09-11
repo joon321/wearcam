@@ -219,6 +219,18 @@ final class OpenAIRealtimeProtocol {
         );
   }
 
+  static const sessionUpdateVad = <String, Object?>{
+    'type': 'session.update',
+    'session': {
+      'turn_detection': {
+        'type': 'server_vad',
+        'threshold': 0.6,
+        'prefix_padding_ms': 300,
+        'silence_duration_ms': 700,
+      },
+    },
+  };
+
   static const responseCreate = <String, Object?>{'type': 'response.create'};
   static const responseCancel = <String, Object?>{'type': 'response.cancel'};
   static const clearOutputAudio = <String, Object?>{

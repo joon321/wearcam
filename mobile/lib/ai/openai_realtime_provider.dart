@@ -250,7 +250,11 @@ final class OpenAIRealtimeProvider implements AIProvider {
     final event = _protocol.decodeEvent(wire);
     if (event == null) return;
     final type = event['type'];
-    if (type == 'session.created' || type == 'session.updated') {
+    if (type == 'session.created') {
+      _send(OpenAIRealtimeProtocol.sessionUpdateVad);
+      final ready = _sessionReady;
+      if (ready != null && !ready.isCompleted) ready.complete();
+    } else if (type == 'session.updated') {
       final ready = _sessionReady;
       if (ready != null && !ready.isCompleted) ready.complete();
     }
