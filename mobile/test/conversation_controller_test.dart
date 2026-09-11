@@ -162,13 +162,12 @@ void main() {
       await controller.start();
       await Future<void>.delayed(Duration.zero);
       expect(controller.visionModes.isEnabled, isTrue);
-      final greetingTurns = controller.transcriptTurns.where(
-        (turn) => turn.text == ConversationController.connectionGreeting,
-      );
-      expect(greetingTurns, hasLength(1));
+      expect(provider.greetings, hasLength(1));
+      expect(provider.greetings.single,
+          ConversationController.connectionGreeting);
       provider.emitState(AIConnectionState.connected);
       await Future<void>.delayed(Duration.zero);
-      expect(greetingTurns, hasLength(1));
+      expect(provider.greetings, hasLength(1));
       controller.dispose();
     },
   );
@@ -359,7 +358,7 @@ void main() {
     controller.dispose();
   });
 
-  test('greeting appears in transcript immediately on connection', () async {
+  test('greeting is spoken via provider on connection', () async {
     final provider = FakeProvider();
     final controller = ConversationController(
       camera: FakeCamera(),
@@ -367,10 +366,10 @@ void main() {
     );
     await controller.start();
     await Future<void>.delayed(Duration.zero);
+    expect(provider.greetings, hasLength(1));
     final greetingTurn = controller.transcriptTurns.firstWhere(
-      (turn) => turn.id == 'connection-greeting',
+      (turn) => turn.text == ConversationController.connectionGreeting,
     );
-    expect(greetingTurn.text, ConversationController.connectionGreeting);
     expect(greetingTurn.role, TranscriptRole.assistant);
     expect(greetingTurn.status, TranscriptStatus.completed);
     controller.dispose();
@@ -384,13 +383,11 @@ void main() {
     );
     await controller.start();
     await Future<void>.delayed(Duration.zero);
+    expect(provider.greetings, hasLength(1));
     await controller.stopEverything();
     await controller.start();
     await Future<void>.delayed(Duration.zero);
-    final greetingTurns = controller.transcriptTurns.where(
-      (turn) => turn.id == 'connection-greeting',
-    );
-    expect(greetingTurns, hasLength(1));
+    expect(provider.greetings, hasLength(2));
     controller.dispose();
   });
 

@@ -62,13 +62,7 @@ final class ConversationController extends ChangeNotifier
       connectionState = state;
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
-        _upsertTranscriptTurn(TranscriptTurn(
-          id: 'connection-greeting',
-          role: TranscriptRole.assistant,
-          text: connectionGreeting,
-          status: TranscriptStatus.completed,
-          createdAt: DateTime.now().toUtc(),
-        ));
+        unawaited(provider.sendGreeting(connectionGreeting));
         unawaited(_setWakelock(true));
       }
       if (state == AIConnectionState.disconnected ||
