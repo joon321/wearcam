@@ -136,14 +136,13 @@ void main() {
       await controller.start();
       await Future<void>.delayed(Duration.zero);
       expect(controller.visionModes.isEnabled, isTrue);
-      expect(provider.greetings, [ConversationController.connectionGreeting]);
       final greetingTurns = controller.transcriptTurns.where(
         (turn) => turn.text == ConversationController.connectionGreeting,
       );
-      expect(greetingTurns, hasLength(greaterThanOrEqualTo(1)));
+      expect(greetingTurns, hasLength(1));
       provider.emitState(AIConnectionState.connected);
       await Future<void>.delayed(Duration.zero);
-      expect(provider.greetings, hasLength(1));
+      expect(greetingTurns, hasLength(1));
       controller.dispose();
     },
   );
@@ -361,7 +360,10 @@ void main() {
     await controller.stopEverything();
     await controller.start();
     await Future<void>.delayed(Duration.zero);
-    expect(provider.greetings, hasLength(2));
+    final greetingTurns = controller.transcriptTurns.where(
+      (turn) => turn.id == 'connection-greeting',
+    );
+    expect(greetingTurns, hasLength(1));
     controller.dispose();
   });
 

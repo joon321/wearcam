@@ -62,7 +62,6 @@ final class ConversationController extends ChangeNotifier
           status: TranscriptStatus.completed,
           createdAt: DateTime.now().toUtc(),
         ));
-        unawaited(provider.sendGreeting(connectionGreeting));
         unawaited(_setWakelock(true));
       }
       if (state == AIConnectionState.disconnected ||
