@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 enum TranscriptRole { user, assistant }
 
 enum TranscriptStatus { streaming, completed, interrupted }
@@ -9,6 +11,7 @@ final class TranscriptTurn {
     required this.text,
     required this.status,
     required this.createdAt,
+    this.imageBytes,
   });
 
   final String id;
@@ -16,13 +19,19 @@ final class TranscriptTurn {
   final String text;
   final TranscriptStatus status;
   final DateTime createdAt;
+  final Uint8List? imageBytes;
 
-  TranscriptTurn copyWith({String? text, TranscriptStatus? status}) =>
+  TranscriptTurn copyWith({
+    String? text,
+    TranscriptStatus? status,
+    Uint8List? imageBytes,
+  }) =>
       TranscriptTurn(
         id: id,
         role: role,
         text: text ?? this.text,
         status: status ?? this.status,
         createdAt: createdAt,
+        imageBytes: imageBytes ?? this.imageBytes,
       );
 }

@@ -76,7 +76,7 @@ test("returns only the short-lived credential and never the permanent key", asyn
           type: "function",
           name: "get_current_view",
           description:
-            "Request one fresh task-relevant still image during the active visual conversation after giving source-appropriate positioning guidance.",
+            "Capture one fresh still image from the user's camera. The app handles camera preview and positioning. Call immediately when the user asks you to look at something.",
           parameters: {
             type: "object",
             properties: {},

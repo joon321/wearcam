@@ -8,6 +8,7 @@ import 'package:wearcam/camera/capture_coordinator.dart';
 import 'package:wearcam/camera/frame_processor.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
+import 'package:wearcam/domain/capture_mode.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
@@ -22,10 +23,12 @@ Future<void> _setWakelock(bool enabled) async {
   }
 }
 
+enum CaptureState { idle, previewing }
+
 final class ConversationController extends ChangeNotifier
     with WidgetsBindingObserver {
   static const connectionGreeting =
-      "Hi, I’m ready. Tell me what you’re working on, and I’ll look when it would help.";
+      "Hi, I'm ready. Tell me what you're working on, and I'll look when it would help.";
   ConversationController({
     required this.camera,
     required this.provider,
@@ -34,11 +37,13 @@ final class ConversationController extends ChangeNotifier
     VisionAuthorizationController? visionModes,
     CameraSourceManager? cameraSources,
     Duration minimumSessionCaptureInterval = const Duration(seconds: 2),
-    this.positioningDelay = const Duration(milliseconds: 750),
+    CaptureMode captureMode = CaptureMode.auto,
+    this.captureAutoDelay = const Duration(seconds: 2),
   }) : diagnostics =
            diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
        visionModes = visionModes ?? VisionAuthorizationController(),
        _ownsVisionModes = visionModes == null,
+       _captureMode = captureMode,
        cameraSources = cameraSources ?? CameraSourceManager(sources: [camera]) {
     captureCoordinator = CaptureCoordinator(
       sources: this.cameraSources,
@@ -81,9 +86,7 @@ final class ConversationController extends ChangeNotifier
     });
     try {
       WidgetsBinding.instance.addObserver(this);
-    } catch (_) {
-      // Binding unavailable in headless unit tests.
-    }
+    } catch (_) {}
   }
 
   void _bindCameraStatus(CameraSource source) {
@@ -114,10 +117,18 @@ final class ConversationController extends ChangeNotifier
   final AIProvider provider;
   final ConnectionDiagnostics diagnostics;
   final FrameProcessor processor;
-  final Duration positioningDelay;
   final VisionAuthorizationController visionModes;
   final bool _ownsVisionModes;
   final CameraSourceManager cameraSources;
+  CaptureMode _captureMode;
+  final Duration captureAutoDelay;
+
+  CaptureMode get captureMode => _captureMode;
+  set captureMode(CaptureMode mode) {
+    if (_captureMode == mode) return;
+    _captureMode = mode;
+    notifyListeners();
+  }
   late final CaptureCoordinator captureCoordinator;
   late final StreamSubscription<ToolCall> _toolSubscription;
   StreamSubscription<CameraStatus>? _cameraSubscription;
@@ -130,12 +141,13 @@ final class ConversationController extends ChangeNotifier
   List<TranscriptTurn> get transcriptTurns =>
       List.unmodifiable(_transcriptTurns);
   String? error;
-  String? positioningGuidance;
+  CaptureState captureState = CaptureState.idle;
   bool microphoneMuted = false;
   bool _disposed = false;
   bool _greetedThisSession = false;
   int _privacyGeneration = 0;
   Completer<void>? _activeToolCall;
+  Completer<void>? _manualCaptureSignal;
   Future<void>? _stopInProgress;
   Future<void>? _startInProgress;
 
@@ -148,6 +160,11 @@ final class ConversationController extends ChangeNotifier
 
   Future<void> get activeToolCallCompleted =>
       _activeToolCall?.future ?? Future<void>.value();
+
+  void triggerCapture() {
+    final signal = _manualCaptureSignal;
+    if (signal != null && !signal.isCompleted) signal.complete();
+  }
 
   Future<void> start() {
     final existing = _startInProgress;
@@ -197,9 +214,7 @@ final class ConversationController extends ChangeNotifier
     } catch (caught) {
       try {
         await cameraSources.selectedSource.disconnect();
-      } catch (_) {
-        // Preserve the provider failure below; camera cleanup is best-effort.
-      }
+      } catch (_) {}
       error = 'connection failed (${caught.runtimeType})';
       connectionState = AIConnectionState.disconnected;
       notifyListeners();
@@ -265,12 +280,18 @@ final class ConversationController extends ChangeNotifier
     _activeToolCall = completion;
     final generation = _privacyGeneration;
     try {
-      positioningGuidance =
-          cameraSources.selectedSource.capabilities.isHeadMounted
-          ? 'Look directly at the object for a moment.'
-          : 'Point your phone camera at the object and hold still.';
+      captureState = CaptureState.previewing;
       notifyListeners();
-      await Future<void>.delayed(positioningDelay);
+
+      if (captureMode == CaptureMode.manual) {
+        final signal = Completer<void>();
+        _manualCaptureSignal = signal;
+        await signal.future;
+        _manualCaptureSignal = null;
+      } else {
+        await Future<void>.delayed(captureAutoDelay);
+      }
+
       if (_toolCallCancelled(generation)) {
         await _completePrivacyCancellation(call.callId);
         return;
@@ -295,6 +316,14 @@ final class ConversationController extends ChangeNotifier
         return;
       }
       lastTransmittedFrame = prepared;
+      _upsertTranscriptTurn(TranscriptTurn(
+        id: 'capture-${call.callId}',
+        role: TranscriptRole.user,
+        text: '',
+        status: TranscriptStatus.completed,
+        createdAt: prepared.capturedAt,
+        imageBytes: prepared.jpegBytes,
+      ));
       debugPrint('WearCam image transmission succeeded');
       await provider.completeToolCall(call.callId, {
         'ok': true,
@@ -309,7 +338,8 @@ final class ConversationController extends ChangeNotifier
         'reason': 'fresh frame unavailable',
       });
     } finally {
-      positioningGuidance = null;
+      captureState = CaptureState.idle;
+      _manualCaptureSignal = null;
       if (!_disposed) notifyListeners();
       if (!completion.isCompleted) completion.complete();
     }

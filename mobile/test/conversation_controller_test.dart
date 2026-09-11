@@ -9,6 +9,7 @@ import 'package:wearcam/camera/phone_camera_source.dart';
 import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
+import 'package:wearcam/domain/capture_mode.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
@@ -24,6 +25,7 @@ void main() {
         camera: camera,
         provider: provider,
         minimumSessionCaptureInterval: Duration.zero,
+        captureAutoDelay: Duration.zero,
       );
       await controller.start();
 
@@ -49,6 +51,30 @@ void main() {
       controller.dispose();
     },
   );
+
+  test('capture adds image to transcript', () async {
+    final camera = FakeCamera();
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+      minimumSessionCaptureInterval: Duration.zero,
+      captureAutoDelay: Duration.zero,
+    );
+    await controller.start();
+
+    provider.issueToolCall('img-1');
+    await provider.completed.first;
+    await controller.activeToolCallCompleted;
+
+    final captureTurn = controller.transcriptTurns.firstWhere(
+      (t) => t.id == 'capture-img-1',
+    );
+    expect(captureTurn.imageBytes, isNotNull);
+    expect(captureTurn.role, TranscriptRole.user);
+    expect(captureTurn.text, '');
+    controller.dispose();
+  });
 
   test('vision mode off prevents image upload', () async {
     final camera = FakeCamera();
@@ -81,7 +107,7 @@ void main() {
     final controller = ConversationController(
       camera: camera,
       provider: provider,
-      positioningDelay: Duration.zero,
+      captureAutoDelay: Duration.zero,
     );
     await controller.start();
     provider.issueToolCall('concurrent-1');
@@ -100,7 +126,7 @@ void main() {
     final controller = ConversationController(
       camera: camera,
       provider: provider,
-      positioningDelay: Duration.zero,
+      captureAutoDelay: Duration.zero,
       minimumSessionCaptureInterval: const Duration(minutes: 1),
     );
     await controller.start();
@@ -167,6 +193,7 @@ void main() {
       final controller = ConversationController(
         camera: camera,
         provider: provider,
+        captureAutoDelay: Duration.zero,
       );
       await controller.start();
       await controller.stopLooking();
@@ -448,6 +475,7 @@ void main() {
     final controller = ConversationController(
       camera: camera,
       provider: provider,
+      captureAutoDelay: Duration.zero,
     );
     await controller.start();
     provider.issueToolCall('pending');
@@ -471,6 +499,7 @@ void main() {
     final controller = ConversationController(
       camera: camera,
       provider: provider,
+      captureAutoDelay: Duration.zero,
     );
     await controller.start();
     var notifications = 0;
@@ -632,6 +661,49 @@ void main() {
     expect(controller.transcriptTurns, hasLength(100));
     expect(controller.transcriptTurns.first.id, 'turn-1');
     expect(controller.transcriptTurns.last.id, 'turn-100');
+    controller.dispose();
+  });
+
+  test('captureState transitions to previewing during tool call', () async {
+    final camera = FakeCamera();
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+      minimumSessionCaptureInterval: Duration.zero,
+      captureAutoDelay: Duration.zero,
+    );
+    await controller.start();
+
+    expect(controller.captureState, CaptureState.idle);
+    provider.issueToolCall('state-test');
+    await provider.completed.first;
+    await controller.activeToolCallCompleted;
+    expect(controller.captureState, CaptureState.idle);
+    controller.dispose();
+  });
+
+  test('manual capture mode waits for triggerCapture', () async {
+    final camera = FakeCamera();
+    final provider = FakeProvider();
+    final controller = ConversationController(
+      camera: camera,
+      provider: provider,
+      minimumSessionCaptureInterval: Duration.zero,
+      captureMode: CaptureMode.manual,
+    );
+    await controller.start();
+
+    provider.issueToolCall('manual-1');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(camera.captureCount, 0);
+    expect(controller.captureState, CaptureState.previewing);
+
+    controller.triggerCapture();
+    await provider.completed.first;
+    await controller.activeToolCallCompleted;
+    expect(camera.captureCount, 1);
+    expect(controller.captureState, CaptureState.idle);
     controller.dispose();
   });
 

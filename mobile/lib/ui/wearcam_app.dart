@@ -6,6 +6,7 @@ import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/phone_camera_source.dart';
 import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
+import 'package:wearcam/domain/capture_mode.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
@@ -54,16 +55,42 @@ final class WearCamHome extends StatefulWidget {
 
 final class _WearCamHomeState extends State<WearCamHome> {
   int index = 0;
+  CaptureState _lastCaptureState = CaptureState.idle;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    final current = widget.controller.captureState;
+    if (current == CaptureState.previewing &&
+        _lastCaptureState == CaptureState.idle) {
+      setState(() => index = 1);
+    } else if (current == CaptureState.idle &&
+        _lastCaptureState == CaptureState.previewing) {
+      setState(() => index = 2);
+    }
+    _lastCaptureState = current;
+  }
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       _Home(controller: widget.controller),
-      _Camera(camera: widget.camera),
+      _Camera(camera: widget.camera, controller: widget.controller),
       _Conversation(controller: widget.controller),
       _Settings(
         onChangeBackend: widget.onChangeBackend,
         diagnostics: widget.diagnostics,
+        controller: widget.controller,
       ),
     ];
     return Scaffold(
@@ -170,63 +197,84 @@ final class _Home extends StatelessWidget {
 }
 
 final class _Camera extends StatelessWidget {
-  const _Camera({required this.camera});
+  const _Camera({required this.camera, required this.controller});
   final PhoneCameraSource camera;
+  final ConversationController controller;
   @override
   Widget build(BuildContext context) {
-    final controller = camera.controller;
-    if (controller == null || !controller.value.isInitialized) {
+    final cameraController = camera.controller;
+    if (cameraController == null || !cameraController.value.isInitialized) {
       return const Center(
         child: Text('Start a conversation to connect the phone camera.'),
       );
     }
     final isFront =
         camera.preferredLens == CameraLensDirection.front;
-    return Column(
-      children: [
-        ListTile(
-          title: const Text('Camera source'),
-          subtitle: Text(
-            'Phone camera (${isFront ? 'front' : 'rear'}) · '
-            'External/wearable camera — Coming later',
-          ),
-          trailing: IconButton(
-            tooltip: isFront ? 'Switch to rear camera' : 'Switch to front camera',
-            icon: const Icon(Icons.cameraswitch),
-            onPressed: () async {
-              try {
-                await camera.selectLens(
-                  isFront
-                      ? CameraLensDirection.back
-                      : CameraLensDirection.front,
-                );
-              } catch (_) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Could not switch camera lens.'),
-                    ),
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) => Column(
+        children: [
+          ListTile(
+            title: const Text('Camera source'),
+            subtitle: Text(
+              'Phone camera (${isFront ? 'front' : 'rear'}) · '
+              'External/wearable camera — Coming later',
+            ),
+            trailing: IconButton(
+              tooltip: isFront ? 'Switch to rear camera' : 'Switch to front camera',
+              icon: const Icon(Icons.cameraswitch),
+              onPressed: () async {
+                try {
+                  await camera.selectLens(
+                    isFront
+                        ? CameraLensDirection.back
+                        : CameraLensDirection.front,
                   );
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Could not switch camera lens.'),
+                      ),
+                    );
+                  }
                 }
-              }
-            },
-          ),
-        ),
-        const MaterialBanner(
-          content: Text(
-            'Local preview only — preview video is never uploaded.',
-          ),
-          actions: [SizedBox.shrink()],
-        ),
-        Expanded(
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: controller.value.aspectRatio,
-              child: CameraPreview(controller),
+              },
             ),
           ),
-        ),
-      ],
+          const MaterialBanner(
+            content: Text(
+              'Local preview only — preview video is never uploaded.',
+            ),
+            actions: [SizedBox.shrink()],
+          ),
+          Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: cameraController.value.aspectRatio,
+                child: CameraPreview(cameraController),
+              ),
+            ),
+          ),
+          if (controller.captureState == CaptureState.previewing &&
+              controller.captureMode == CaptureMode.manual)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: FilledButton.icon(
+                key: const Key('manual-capture-button'),
+                onPressed: controller.triggerCapture,
+                icon: const Icon(Icons.camera),
+                label: const Text('Capture'),
+              ),
+            ),
+          if (controller.captureState == CaptureState.previewing &&
+              controller.captureMode == CaptureMode.auto)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Capturing automatically…'),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -284,14 +332,6 @@ final class _ConversationState extends State<_Conversation> {
               child: ListTile(
                 leading: const Icon(Icons.visibility, color: Colors.green),
                 title: Text(controller.visionStatusFor(visionMode)),
-              ),
-            ),
-          if (controller.positioningGuidance case final guidance?)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.center_focus_strong),
-                title: const Text('Position camera'),
-                subtitle: Text(guidance),
               ),
             ),
           Text('Transcript', style: Theme.of(context).textTheme.titleLarge),
@@ -357,6 +397,18 @@ final class _TranscriptBubble extends StatelessWidget {
               isUser ? 'You' : 'WearCam',
               style: Theme.of(context).textTheme.labelLarge,
             ),
+            if (turn.imageBytes != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.memory(
+                    turn.imageBytes!,
+                    gaplessPlayback: true,
+                    width: 200,
+                  ),
+                ),
+              ),
             if (turn.text.isNotEmpty) SelectableText(turn.text),
             if (turn.status == TranscriptStatus.streaming)
               const Text('Speaking…', key: Key('streaming-turn-status')),
@@ -370,50 +422,75 @@ final class _TranscriptBubble extends StatelessWidget {
 }
 
 final class _Settings extends StatelessWidget {
-  const _Settings({required this.onChangeBackend, required this.diagnostics});
+  const _Settings({
+    required this.onChangeBackend,
+    required this.diagnostics,
+    required this.controller,
+  });
   final Future<void> Function() onChangeBackend;
   final ConnectionDiagnostics diagnostics;
+  final ConversationController controller;
 
   @override
-  Widget build(BuildContext context) => ListView(
-    children: [
-      const ListTile(
-        title: Text('Provider'),
-        subtitle: Text('OpenAI Realtime'),
-      ),
-      ListTile(
-        key: const Key('change-backend-action'),
-        leading: const Icon(Icons.settings_ethernet),
-        title: const Text('Change backend'),
-        subtitle: const Text('Update the saved WearCam backend URL'),
-        onTap: () => handleChangeBackend(onChangeBackend, diagnostics),
-      ),
-      if (kDebugMode)
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) => ListView(
+      children: [
+        const ListTile(
+          title: Text('Provider'),
+          subtitle: Text('OpenAI Realtime'),
+        ),
         ListTile(
-          key: const Key('connection-diagnostics-action'),
-          leading: const Icon(Icons.bug_report_outlined),
-          title: const Text('Connection diagnostics'),
-          subtitle: const Text('Debug-only sanitized connection timeline'),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => _DiagnosticsScreen(diagnostics: diagnostics),
-            ),
+          key: const Key('change-backend-action'),
+          leading: const Icon(Icons.settings_ethernet),
+          title: const Text('Change backend'),
+          subtitle: const Text('Update the saved WearCam backend URL'),
+          onTap: () => handleChangeBackend(onChangeBackend, diagnostics),
+        ),
+        ListTile(
+          key: const Key('capture-mode-setting'),
+          leading: const Icon(Icons.camera_alt),
+          title: const Text('Capture mode'),
+          subtitle: Text(
+            controller.captureMode == CaptureMode.auto
+                ? 'Auto — captures after a short delay'
+                : 'Manual — tap to capture',
+          ),
+          trailing: Switch(
+            value: controller.captureMode == CaptureMode.manual,
+            onChanged: (manual) {
+              controller.captureMode =
+                  manual ? CaptureMode.manual : CaptureMode.auto;
+            },
           ),
         ),
-      const ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
-      const ListTile(
-        title: Text('Long edge'),
-        subtitle: Text('1280 px maximum'),
-      ),
-      const ListTile(
-        title: Text('Retention'),
-        subtitle: Text('In memory until session stop'),
-      ),
-      const ListTile(
-        title: Text('Guidance'),
-        subtitle: Text('Planned for Milestone 3'),
-      ),
-    ],
+        if (kDebugMode)
+          ListTile(
+            key: const Key('connection-diagnostics-action'),
+            leading: const Icon(Icons.bug_report_outlined),
+            title: const Text('Connection diagnostics'),
+            subtitle: const Text('Debug-only sanitized connection timeline'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => _DiagnosticsScreen(diagnostics: diagnostics),
+              ),
+            ),
+          ),
+        const ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
+        const ListTile(
+          title: Text('Long edge'),
+          subtitle: Text('1280 px maximum'),
+        ),
+        const ListTile(
+          title: Text('Retention'),
+          subtitle: Text('In memory until session stop'),
+        ),
+        const ListTile(
+          title: Text('Guidance'),
+          subtitle: Text('Planned for Milestone 3'),
+        ),
+      ],
+    ),
   );
 }
 
