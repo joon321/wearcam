@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +8,7 @@ import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/phone_camera_source.dart';
 import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
+import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/capture_mode.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
@@ -203,85 +206,111 @@ final class _Home extends StatelessWidget {
   );
 }
 
-final class _Camera extends StatelessWidget {
+final class _Camera extends StatefulWidget {
   const _Camera({required this.camera, required this.controller});
   final PhoneCameraSource camera;
   final ConversationController controller;
+
+  @override
+  State<_Camera> createState() => _CameraState();
+}
+
+final class _CameraState extends State<_Camera> {
+  StreamSubscription<CameraStatus>? _statusSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _statusSubscription = widget.camera.status.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusSubscription?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final cameraController = camera.controller;
+    final cameraController = widget.camera.controller;
     if (cameraController == null || !cameraController.value.isInitialized) {
       return const Center(
         child: Text('Start a conversation to connect the phone camera.'),
       );
     }
-    final isFront =
-        camera.preferredLens == CameraLensDirection.front;
     return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) => Column(
-        children: [
-          ListTile(
-            title: const Text('Camera source'),
-            subtitle: Text(
-              'Phone camera (${isFront ? 'front' : 'rear'}) · '
-              'External/wearable camera — Coming later',
-            ),
-            trailing: IconButton(
-              tooltip: isFront ? 'Switch to rear camera' : 'Switch to front camera',
-              icon: const Icon(Icons.cameraswitch),
-              onPressed: () async {
-                try {
-                  await camera.selectLens(
-                    isFront
-                        ? CameraLensDirection.back
-                        : CameraLensDirection.front,
-                  );
-                } catch (_) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Could not switch camera lens.'),
-                      ),
+      animation: widget.controller,
+      builder: (context, _) {
+        final currentController = widget.camera.controller;
+        if (currentController == null ||
+            !currentController.value.isInitialized) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final isFront =
+            widget.camera.preferredLens == CameraLensDirection.front;
+        return Column(
+          children: [
+            ListTile(
+              title: const Text('Camera source'),
+              subtitle: Text(
+                'Phone camera (${isFront ? 'front' : 'rear'}) · '
+                'External/wearable camera — Coming later',
+              ),
+              trailing: IconButton(
+                tooltip: isFront
+                    ? 'Switch to rear camera'
+                    : 'Switch to front camera',
+                icon: const Icon(Icons.cameraswitch),
+                onPressed: () async {
+                  try {
+                    await widget.camera.selectLens(
+                      isFront
+                          ? CameraLensDirection.back
+                          : CameraLensDirection.front,
                     );
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not switch camera lens.'),
+                        ),
+                      );
+                    }
                   }
-                }
-              },
-            ),
-          ),
-          const MaterialBanner(
-            content: Text(
-              'Local preview only — preview video is never uploaded.',
-            ),
-            actions: [SizedBox.shrink()],
-          ),
-          Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: cameraController.value.aspectRatio,
-                child: CameraPreview(cameraController),
+                },
               ),
             ),
-          ),
-          if (controller.captureState == CaptureState.previewing &&
-              controller.captureMode == CaptureMode.manual)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: FilledButton.icon(
-                key: const Key('manual-capture-button'),
-                onPressed: controller.triggerCapture,
-                icon: const Icon(Icons.camera),
-                label: const Text('Capture'),
+            const MaterialBanner(
+              content: Text(
+                'Local preview only — preview video is never uploaded.',
               ),
+              actions: [SizedBox.shrink()],
             ),
-          if (controller.captureState == CaptureState.previewing &&
-              controller.captureMode == CaptureMode.auto)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Capturing automatically…'),
+            Expanded(
+              child: CameraPreview(currentController),
             ),
-        ],
-      ),
+            if (widget.controller.captureState == CaptureState.previewing &&
+                widget.controller.captureMode == CaptureMode.manual)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: FilledButton.icon(
+                  key: const Key('manual-capture-button'),
+                  onPressed: widget.controller.triggerCapture,
+                  icon: const Icon(Icons.camera),
+                  label: const Text('Capture'),
+                ),
+              ),
+            if (widget.controller.captureState == CaptureState.previewing &&
+                widget.controller.captureMode == CaptureMode.auto)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Capturing automatically…'),
+              ),
+          ],
+        );
+      },
     );
   }
 }
