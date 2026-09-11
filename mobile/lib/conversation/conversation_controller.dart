@@ -90,6 +90,7 @@ final class ConversationController extends ChangeNotifier
       if (state == CameraStatus.disconnected || state == CameraStatus.failed) {
         visionModes.revoke();
         _privacyGeneration += 1;
+        _cancelManualCapture();
         if (!_disposed) notifyListeners();
       }
     });
@@ -372,8 +373,14 @@ final class ConversationController extends ChangeNotifier
         'reason': 'visual transmission cancelled',
       });
 
+  void _cancelManualCapture() {
+    final signal = _manualCaptureSignal;
+    if (signal != null && !signal.isCompleted) signal.complete();
+  }
+
   Future<void> stopLooking() async {
     _privacyGeneration += 1;
+    _cancelManualCapture();
     captureCoordinator.cancel();
     lastTransmittedFrame = null;
     notifyListeners();
@@ -416,6 +423,7 @@ final class ConversationController extends ChangeNotifier
 
   Future<void> _stopEverything() async {
     _privacyGeneration += 1;
+    _cancelManualCapture();
     visionModes.revoke();
     lastTransmittedFrame = null;
     microphoneMuted = false;
@@ -429,6 +437,7 @@ final class ConversationController extends ChangeNotifier
   void dispose() {
     _disposed = true;
     _privacyGeneration += 1;
+    _cancelManualCapture();
     unawaited(_setWakelock(false));
     try {
       WidgetsBinding.instance.removeObserver(this);

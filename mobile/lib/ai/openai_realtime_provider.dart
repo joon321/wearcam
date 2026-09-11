@@ -316,7 +316,10 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   @override
   Future<void> sendGreeting(String text) async {
-    await _sessionReady?.future;
+    final ready = _sessionReady;
+    if (ready == null) return;
+    await ready.future;
+    if (_sessionReady != ready || _connection == null) return;
     _send(_protocol.greetingRequest(text));
   }
 
