@@ -32,6 +32,7 @@ abstract interface class AIProvider {
   Future<void> sendImage(PreparedFrame frame, String context);
   Future<void> completeToolCall(String callId, Map<String, Object?> output);
   Future<void> setMicrophoneMuted(bool muted);
+  Future<void> updateSessionInstructions(String instructions);
   Future<void> interrupt();
   Future<void> stopSession();
 }

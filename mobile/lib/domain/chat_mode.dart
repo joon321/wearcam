@@ -1,0 +1,4 @@
+enum ChatMode {
+  chatty,
+  chill,
+}

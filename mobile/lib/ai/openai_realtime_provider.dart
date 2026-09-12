@@ -348,6 +348,12 @@ final class OpenAIRealtimeProvider implements AIProvider {
   }
 
   @override
+  Future<void> updateSessionInstructions(String instructions) async {
+    if (_connection == null) return;
+    _send(OpenAIRealtimeProtocol.sessionUpdateInstructions(instructions));
+  }
+
+  @override
   Future<void> interrupt() async {
     _interruptActiveAssistantTurns();
     _send(OpenAIRealtimeProtocol.responseCancel);

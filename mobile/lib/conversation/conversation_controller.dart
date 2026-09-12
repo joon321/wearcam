@@ -9,6 +9,7 @@ import 'package:wearcam/camera/frame_processor.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/capture_mode.dart';
+import 'package:wearcam/domain/chat_mode.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
@@ -27,8 +28,14 @@ enum CaptureState { idle, previewing }
 
 final class ConversationController extends ChangeNotifier
     with WidgetsBindingObserver {
-  static const connectionGreeting =
+  static const connectionGreetingChatty =
       "Hi, I'm ready. Tell me what you're working on, and I'll look when it would help.";
+  static const connectionGreetingChill = 'Ready.';
+
+  static const _chattyInstructions =
+      'Respond in a natural, conversational tone. Keep answers concise but friendly.';
+  static const _chillInstructions =
+      'Respond with the absolute minimum words necessary. One to five words max when possible. No filler, no pleasantries, no elaboration unless the user explicitly asks for detail. Be direct and terse.';
   ConversationController({
     required this.camera,
     required this.provider,
@@ -38,12 +45,14 @@ final class ConversationController extends ChangeNotifier
     CameraSourceManager? cameraSources,
     Duration minimumSessionCaptureInterval = const Duration(seconds: 2),
     CaptureMode captureMode = CaptureMode.auto,
+    ChatMode chatMode = ChatMode.chatty,
     this.captureAutoDelay = const Duration(seconds: 2),
   }) : diagnostics =
            diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
        visionModes = visionModes ?? VisionAuthorizationController(),
        _ownsVisionModes = visionModes == null,
        _captureMode = captureMode,
+       _chatMode = chatMode,
        cameraSources = cameraSources ?? CameraSourceManager(sources: [camera]) {
     captureCoordinator = CaptureCoordinator(
       sources: this.cameraSources,
@@ -62,6 +71,9 @@ final class ConversationController extends ChangeNotifier
       connectionState = state;
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
+        if (_chatMode == ChatMode.chill) {
+          unawaited(provider.updateSessionInstructions(_chillInstructions));
+        }
         unawaited(provider.sendGreeting(connectionGreeting));
         unawaited(_setWakelock(true));
       }
@@ -116,6 +128,7 @@ final class ConversationController extends ChangeNotifier
   final bool _ownsVisionModes;
   final CameraSourceManager cameraSources;
   CaptureMode _captureMode;
+  ChatMode _chatMode;
   final Duration captureAutoDelay;
 
   CaptureMode get captureMode => _captureMode;
@@ -124,6 +137,22 @@ final class ConversationController extends ChangeNotifier
     _captureMode = mode;
     notifyListeners();
   }
+
+  ChatMode get chatMode => _chatMode;
+  set chatMode(ChatMode mode) {
+    if (_chatMode == mode) return;
+    _chatMode = mode;
+    if (connectionState == AIConnectionState.connected) {
+      unawaited(provider.updateSessionInstructions(
+        mode == ChatMode.chill ? _chillInstructions : _chattyInstructions,
+      ));
+    }
+    notifyListeners();
+  }
+
+  String get connectionGreeting => _chatMode == ChatMode.chill
+      ? connectionGreetingChill
+      : connectionGreetingChatty;
   late final CaptureCoordinator captureCoordinator;
   late final StreamSubscription<ToolCall> _toolSubscription;
   StreamSubscription<CameraStatus>? _cameraSubscription;

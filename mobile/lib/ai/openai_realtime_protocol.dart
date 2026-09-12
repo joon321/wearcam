@@ -219,6 +219,13 @@ final class OpenAIRealtimeProtocol {
         );
   }
 
+  static Map<String, Object?> sessionUpdateInstructions(
+    String instructions,
+  ) => {
+    'type': 'session.update',
+    'session': {'instructions': instructions},
+  };
+
   static const sessionUpdateVad = <String, Object?>{
     'type': 'session.update',
     'session': {

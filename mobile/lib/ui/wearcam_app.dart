@@ -10,6 +10,7 @@ import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/capture_mode.dart';
+import 'package:wearcam/domain/chat_mode.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
@@ -497,6 +498,23 @@ final class _Settings extends StatelessWidget {
             onChanged: (manual) {
               controller.captureMode =
                   manual ? CaptureMode.manual : CaptureMode.auto;
+            },
+          ),
+        ),
+        ListTile(
+          key: const Key('chat-mode-setting'),
+          leading: const Icon(Icons.chat_bubble_outline),
+          title: const Text('Chat mode'),
+          subtitle: Text(
+            controller.chatMode == ChatMode.chatty
+                ? 'Chatty — friendly and conversational'
+                : 'Chill — minimal, terse responses',
+          ),
+          trailing: Switch(
+            value: controller.chatMode == ChatMode.chill,
+            onChanged: (chill) {
+              controller.chatMode =
+                  chill ? ChatMode.chill : ChatMode.chatty;
             },
           ),
         ),

@@ -164,7 +164,7 @@ void main() {
       expect(controller.visionModes.isEnabled, isTrue);
       expect(provider.greetings, hasLength(1));
       expect(provider.greetings.single,
-          ConversationController.connectionGreeting);
+          ConversationController.connectionGreetingChatty);
       provider.emitState(AIConnectionState.connected);
       await Future<void>.delayed(Duration.zero);
       expect(provider.greetings, hasLength(1));
@@ -368,7 +368,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(provider.greetings, hasLength(1));
     final greetingTurn = controller.transcriptTurns.firstWhere(
-      (turn) => turn.text == ConversationController.connectionGreeting,
+      (turn) => turn.text == ConversationController.connectionGreetingChatty,
     );
     expect(greetingTurn.role, TranscriptRole.assistant);
     expect(greetingTurn.status, TranscriptStatus.completed);
@@ -957,4 +957,6 @@ final class FakeProvider implements AIProvider {
   Future<void> sendText(String text) async {}
   @override
   Future<void> setMicrophoneMuted(bool muted) async {}
+  @override
+  Future<void> updateSessionInstructions(String instructions) async {}
 }
