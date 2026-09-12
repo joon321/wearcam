@@ -108,8 +108,7 @@ test("returns only the short-lived credential and never the permanent key", asyn
                     },
                     width: {
                       type: "number",
-                      description:
-                        "Width as fraction of image width (0.0–1.0)",
+                      description: "Width as fraction of image width (0.0–1.0)",
                     },
                     height: {
                       type: "number",
@@ -140,8 +139,7 @@ test("returns only the short-lived credential and never the permanent key", asyn
             properties: {
               query: {
                 type: "string",
-                description:
-                  "Descriptive search query for the reference image",
+                description: "Descriptive search query for the reference image",
               },
             },
             required: ["query"],
