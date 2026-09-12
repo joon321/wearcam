@@ -31,12 +31,12 @@ final class ConversationController extends ChangeNotifier
     with WidgetsBindingObserver {
   static const connectionGreetingChatty =
       "Hi, I'm ready. Tell me what you're working on, and I'll look when it would help.";
-  static const connectionGreetingChill = 'Ready.';
+  static const connectionGreetingChill = 'Ready when you are.';
 
   static const _chattyInstructions =
-      'Respond in a natural, conversational tone. Keep answers concise but friendly.';
+      'Respond in a natural, conversational tone. Keep answers concise but friendly. NEVER speak unless the user speaks to you first. Do not initiate conversation, ask unprompted questions, offer unsolicited commentary, or act on your own. Wait silently until the user says something.';
   static const _chillInstructions =
-      'Respond with the absolute minimum words necessary. One to five words max when possible. No filler, no pleasantries, no elaboration unless the user explicitly asks for detail. Be direct and terse.';
+      'Respond with the absolute minimum words necessary. One to five words max when possible. No filler, no pleasantries, no elaboration unless the user explicitly asks for detail. Be direct and terse. NEVER speak unless the user speaks to you first.';
   ConversationController({
     required this.camera,
     required this.provider,
