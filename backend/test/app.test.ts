@@ -98,20 +98,28 @@ test("returns only the short-lived credential and never the permanent key", asyn
                   properties: {
                     x: {
                       type: "number",
+                      minimum: 0,
+                      maximum: 1,
                       description:
                         "Left edge as fraction of image width (0.0–1.0)",
                     },
                     y: {
                       type: "number",
+                      minimum: 0,
+                      maximum: 1,
                       description:
                         "Top edge as fraction of image height (0.0–1.0)",
                     },
                     width: {
                       type: "number",
+                      minimum: 0,
+                      maximum: 1,
                       description: "Width as fraction of image width (0.0–1.0)",
                     },
                     height: {
                       type: "number",
+                      minimum: 0,
+                      maximum: 1,
                       description:
                         "Height as fraction of image height (0.0–1.0)",
                     },
@@ -126,23 +134,6 @@ test("returns only the short-lived credential and never the permanent key", asyn
               },
             },
             required: ["regions"],
-            additionalProperties: false,
-          },
-        },
-        {
-          type: "function",
-          name: "show_reference_image",
-          description:
-            "Search for and display a reference photo when the user does not know what something looks like. The image appears in the conversation. Use when the user asks 'what does X look like?' or says they don't recognize something.",
-          parameters: {
-            type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description: "Descriptive search query for the reference image",
-              },
-            },
-            required: ["query"],
             additionalProperties: false,
           },
         },

@@ -459,23 +459,61 @@ final class _TranscriptBubble extends StatelessWidget {
   }
 }
 
-final class _AnnotatedImage extends StatelessWidget {
+final class _AnnotatedImage extends StatefulWidget {
   const _AnnotatedImage({required this.imageBytes, this.annotations});
 
   final Uint8List imageBytes;
   final List<ImageAnnotation>? annotations;
 
   @override
+  State<_AnnotatedImage> createState() => _AnnotatedImageState();
+}
+
+final class _AnnotatedImageState extends State<_AnnotatedImage> {
+  Future<Size>? _sizeFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.annotations != null && widget.annotations!.isNotEmpty) {
+      _sizeFuture = _resolveImageSize();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_AnnotatedImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.imageBytes, widget.imageBytes)) {
+      _sizeFuture =
+          widget.annotations != null && widget.annotations!.isNotEmpty
+              ? _resolveImageSize()
+              : null;
+    }
+  }
+
+  Future<Size> _resolveImageSize() async {
+    final completer = Completer<Size>();
+    ui.decodeImageFromList(widget.imageBytes, (image) {
+      completer.complete(
+        Size(image.width.toDouble(), image.height.toDouble()),
+      );
+      image.dispose();
+    });
+    return completer.future;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final image = Image.memory(imageBytes, gaplessPlayback: true, width: 200);
-    final regions = annotations;
+    final image =
+        Image.memory(widget.imageBytes, gaplessPlayback: true, width: 200);
+    final regions = widget.annotations;
     if (regions == null || regions.isEmpty) return image;
     return SizedBox(
       width: 200,
       child: LayoutBuilder(
         builder: (context, constraints) {
           return FutureBuilder<Size>(
-            future: _resolveImageSize(),
+            future: _sizeFuture,
             builder: (context, snapshot) {
               if (!snapshot.hasData) return image;
               final imageSize = snapshot.data!;
@@ -504,17 +542,6 @@ final class _AnnotatedImage extends StatelessWidget {
         },
       ),
     );
-  }
-
-  Future<Size> _resolveImageSize() async {
-    final completer = Completer<Size>();
-    ui.decodeImageFromList(imageBytes, (image) {
-      completer.complete(
-        Size(image.width.toDouble(), image.height.toDouble()),
-      );
-      image.dispose();
-    });
-    return completer.future;
   }
 }
 

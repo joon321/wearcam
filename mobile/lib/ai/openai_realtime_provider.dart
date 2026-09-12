@@ -379,12 +379,20 @@ final class OpenAIRealtimeProvider implements AIProvider {
       final first = results[0] as Map<String, dynamic>;
       final thumbnailUrl = first['thumbnailUrl'] as String?;
       if (thumbnailUrl == null || thumbnailUrl.isEmpty) return null;
-      final imageResponse = await _http
-          .get(Uri.parse(thumbnailUrl))
+      final imageRequest = http.Request('GET', Uri.parse(thumbnailUrl));
+      final imageStream = await _http
+          .send(imageRequest)
           .timeout(const Duration(seconds: 8));
-      if (imageResponse.statusCode != 200) return null;
+      if (imageStream.statusCode != 200) return null;
+      final contentType = imageStream.headers['content-type'] ?? '';
+      if (!contentType.startsWith('image/')) return null;
+      const maxImageBytes = 5 * 1024 * 1024;
+      final imageBytes = await imageStream.stream
+          .toBytes()
+          .timeout(const Duration(seconds: 8));
+      if (imageBytes.length > maxImageBytes) return null;
       return ImageSearchResult(
-        imageBytes: imageResponse.bodyBytes,
+        imageBytes: imageBytes,
         title: (first['title'] as String?) ?? query,
         sourceUrl: (first['sourceUrl'] as String?) ?? thumbnailUrl,
       );

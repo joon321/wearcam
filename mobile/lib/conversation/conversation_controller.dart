@@ -33,10 +33,13 @@ final class ConversationController extends ChangeNotifier
       "Hi, I'm ready. Tell me what you're working on, and I'll look when it would help.";
   static const connectionGreetingChill = 'Ready when you are.';
 
+  static const _baseInstructions =
+      'NEVER speak unless the user speaks to you first. Do not initiate conversation, ask unprompted questions, offer unsolicited commentary, or act on your own initiative. Wait silently until the user clearly addresses you. If there is silence, stay silent.'
+      "\nIf the audio is unclear, garbled, noisy, or not clearly intelligible human speech, stay completely silent. Produce no output. Never say \"I can't hear you\" or similar. Only respond to clear human speech.";
   static const _chattyInstructions =
-      'Respond in a natural, conversational tone. Keep answers concise but friendly. NEVER speak unless the user speaks to you first. Do not initiate conversation, ask unprompted questions, offer unsolicited commentary, or act on your own. Wait silently until the user says something.';
+      'Respond in a natural, conversational tone. Keep answers concise but friendly.';
   static const _chillInstructions =
-      'Respond with the absolute minimum words necessary. One to five words max when possible. No filler, no pleasantries, no elaboration unless the user explicitly asks for detail. Be direct and terse. NEVER speak unless the user speaks to you first.';
+      'Respond with the absolute minimum words necessary. One to five words max when possible. No filler, no pleasantries, no elaboration unless the user explicitly asks for detail. Be direct and terse.';
   ConversationController({
     required this.camera,
     required this.provider,
@@ -75,7 +78,9 @@ final class ConversationController extends ChangeNotifier
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
         if (_chatMode == ChatMode.chill) {
-          unawaited(provider.updateSessionInstructions(_chillInstructions));
+          unawaited(provider.updateSessionInstructions(
+            '$_baseInstructions\n$_chillInstructions',
+          ));
         }
         unawaited(provider.sendGreeting(connectionGreeting));
         unawaited(_setWakelock(true));
@@ -156,9 +161,11 @@ final class ConversationController extends ChangeNotifier
     if (_chatMode == mode) return;
     _chatMode = mode;
     if (connectionState == AIConnectionState.connected) {
-      unawaited(provider.updateSessionInstructions(
-        mode == ChatMode.chill ? _chillInstructions : _chattyInstructions,
-      ));
+      final modeText =
+          mode == ChatMode.chill ? _chillInstructions : _chattyInstructions;
+      unawaited(
+        provider.updateSessionInstructions('$_baseInstructions\n$modeText'),
+      );
     }
     notifyListeners();
   }
@@ -452,6 +459,7 @@ final class ConversationController extends ChangeNotifier
       if (x == null || y == null || w == null || h == null || label == null) {
         continue;
       }
+      if (x + w > 1.0 || y + h > 1.0) continue;
       annotations.add(
         ImageAnnotation(x: x, y: y, width: w, height: h, label: label),
       );
@@ -488,7 +496,9 @@ final class ConversationController extends ChangeNotifier
       });
       return;
     }
+    final generation = _privacyGeneration;
     final result = await provider.searchImage(query.trim());
+    if (_disposed || generation != _privacyGeneration) return;
     if (result == null) {
       await provider.completeToolCall(call.callId, {
         'ok': false,

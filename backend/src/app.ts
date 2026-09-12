@@ -117,14 +117,16 @@ export function createApp(
           );
           return;
         }
-        let body = "";
+        const chunks: Buffer[] = [];
         let size = 0;
         for await (const chunk of request) {
-          size += Buffer.byteLength(chunk);
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          size += buf.length;
           if (size > IMAGE_SEARCH_BODY_LIMIT)
             throw new Error("request_too_large");
-          body += chunk;
+          chunks.push(buf);
         }
+        const body = Buffer.concat(chunks).toString("utf-8");
         let query: string;
         try {
           const parsed = JSON.parse(body);
@@ -251,6 +253,28 @@ export function createApp(
               },
               instructions: INSTRUCTIONS,
               tools: [
+                ...(config.braveSearchApiKey
+                  ? [
+                      {
+                        type: "function" as const,
+                        name: "show_reference_image",
+                        description:
+                          "Search for and display a reference photo when the user does not know what something looks like. The image appears in the conversation. Use when the user asks 'what does X look like?' or says they don't recognize something.",
+                        parameters: {
+                          type: "object",
+                          properties: {
+                            query: {
+                              type: "string",
+                              description:
+                                "Descriptive search query for the reference image",
+                            },
+                          },
+                          required: ["query"],
+                          additionalProperties: false,
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   type: "function",
                   name: "get_current_view",
@@ -277,21 +301,29 @@ export function createApp(
                           properties: {
                             x: {
                               type: "number",
+                              minimum: 0,
+                              maximum: 1,
                               description:
                                 "Left edge as fraction of image width (0.0–1.0)",
                             },
                             y: {
                               type: "number",
+                              minimum: 0,
+                              maximum: 1,
                               description:
                                 "Top edge as fraction of image height (0.0–1.0)",
                             },
                             width: {
                               type: "number",
+                              minimum: 0,
+                              maximum: 1,
                               description:
                                 "Width as fraction of image width (0.0–1.0)",
                             },
                             height: {
                               type: "number",
+                              minimum: 0,
+                              maximum: 1,
                               description:
                                 "Height as fraction of image height (0.0–1.0)",
                             },
@@ -306,24 +338,6 @@ export function createApp(
                       },
                     },
                     required: ["regions"],
-                    additionalProperties: false,
-                  },
-                },
-                {
-                  type: "function",
-                  name: "show_reference_image",
-                  description:
-                    "Search for and display a reference photo when the user does not know what something looks like. The image appears in the conversation. Use when the user asks 'what does X look like?' or says they don't recognize something.",
-                  parameters: {
-                    type: "object",
-                    properties: {
-                      query: {
-                        type: "string",
-                        description:
-                          "Descriptive search query for the reference image",
-                      },
-                    },
-                    required: ["query"],
                     additionalProperties: false,
                   },
                 },
