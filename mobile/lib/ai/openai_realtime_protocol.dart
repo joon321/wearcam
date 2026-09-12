@@ -226,15 +226,20 @@ final class OpenAIRealtimeProtocol {
     'session': {'instructions': instructions},
   };
 
-  static const sessionUpdateVad = <String, Object?>{
+  static Map<String, Object?> sessionUpdateVad({
+    double threshold = 0.85,
+    int prefixPaddingMs = 500,
+    int silenceDurationMs = 1000,
+    String eagerness = 'low',
+  }) => {
     'type': 'session.update',
     'session': {
       'turn_detection': {
         'type': 'server_vad',
-        'threshold': 0.85,
-        'prefix_padding_ms': 500,
-        'silence_duration_ms': 1000,
-        'eagerness': 'low',
+        'threshold': threshold,
+        'prefix_padding_ms': prefixPaddingMs,
+        'silence_duration_ms': silenceDurationMs,
+        'eagerness': eagerness,
       },
     },
   };

@@ -960,5 +960,7 @@ final class FakeProvider implements AIProvider {
   @override
   Future<void> updateSessionInstructions(String instructions) async {}
   @override
+  Future<void> updateVadThreshold(double threshold) async {}
+  @override
   Future<ImageSearchResult?> searchImage(String query) async => null;
 }

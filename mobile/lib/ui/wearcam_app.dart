@@ -555,7 +555,7 @@ final class _AnnotationOverlay extends StatelessWidget {
   }
 }
 
-final class _Settings extends StatelessWidget {
+final class _Settings extends StatefulWidget {
   const _Settings({
     required this.onChangeBackend,
     required this.diagnostics,
@@ -566,8 +566,15 @@ final class _Settings extends StatelessWidget {
   final ConversationController controller;
 
   @override
+  State<_Settings> createState() => _SettingsState();
+}
+
+final class _SettingsState extends State<_Settings> {
+  bool _showAdvanced = false;
+
+  @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: controller,
+    animation: widget.controller,
     builder: (context, _) => ListView(
       children: [
         const ListTile(
@@ -579,21 +586,24 @@ final class _Settings extends StatelessWidget {
           leading: const Icon(Icons.settings_ethernet),
           title: const Text('Change backend'),
           subtitle: const Text('Update the saved WearCam backend URL'),
-          onTap: () => handleChangeBackend(onChangeBackend, diagnostics),
+          onTap: () => handleChangeBackend(
+            widget.onChangeBackend,
+            widget.diagnostics,
+          ),
         ),
         ListTile(
           key: const Key('capture-mode-setting'),
           leading: const Icon(Icons.camera_alt),
           title: const Text('Capture mode'),
           subtitle: Text(
-            controller.captureMode == CaptureMode.auto
+            widget.controller.captureMode == CaptureMode.auto
                 ? 'Auto — captures after a short delay'
                 : 'Manual — tap to capture',
           ),
           trailing: Switch(
-            value: controller.captureMode == CaptureMode.manual,
+            value: widget.controller.captureMode == CaptureMode.manual,
             onChanged: (manual) {
-              controller.captureMode =
+              widget.controller.captureMode =
                   manual ? CaptureMode.manual : CaptureMode.auto;
             },
           ),
@@ -603,14 +613,14 @@ final class _Settings extends StatelessWidget {
           leading: const Icon(Icons.chat_bubble_outline),
           title: const Text('Chat mode'),
           subtitle: Text(
-            controller.chatMode == ChatMode.chatty
+            widget.controller.chatMode == ChatMode.chatty
                 ? 'Chatty — friendly and conversational'
                 : 'Chill — minimal, terse responses',
           ),
           trailing: Switch(
-            value: controller.chatMode == ChatMode.chill,
+            value: widget.controller.chatMode == ChatMode.chill,
             onChanged: (chill) {
-              controller.chatMode =
+              widget.controller.chatMode =
                   chill ? ChatMode.chill : ChatMode.chatty;
             },
           ),
@@ -623,7 +633,8 @@ final class _Settings extends StatelessWidget {
             subtitle: const Text('Debug-only sanitized connection timeline'),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => _DiagnosticsScreen(diagnostics: diagnostics),
+                builder: (_) =>
+                    _DiagnosticsScreen(diagnostics: widget.diagnostics),
               ),
             ),
           ),
@@ -640,9 +651,59 @@ final class _Settings extends StatelessWidget {
           title: Text('Guidance'),
           subtitle: Text('Planned for Milestone 3'),
         ),
+        const Divider(),
+        ListTile(
+          key: const Key('advanced-settings-toggle'),
+          leading: const Icon(Icons.tune),
+          title: const Text('Advanced settings'),
+          trailing: Switch(
+            value: _showAdvanced,
+            onChanged: (value) => setState(() => _showAdvanced = value),
+          ),
+        ),
+        if (_showAdvanced) ...[
+          ListTile(
+            key: const Key('vad-threshold-setting'),
+            leading: const Icon(Icons.hearing),
+            title: const Text('Voice detection sensitivity'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Threshold: '
+                  '${widget.controller.vadThreshold.toStringAsFixed(2)}'
+                  ' — ${_vadLabel(widget.controller.vadThreshold)}',
+                ),
+                Slider(
+                  value: widget.controller.vadThreshold,
+                  min: 0.5,
+                  max: 1.0,
+                  divisions: 10,
+                  label: widget.controller.vadThreshold.toStringAsFixed(2),
+                  onChanged: (value) {
+                    widget.controller.vadThreshold = value;
+                  },
+                ),
+                const Text(
+                  'Higher = less sensitive to noise, '
+                  'lower = more responsive to quiet speech',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     ),
   );
+
+  static String _vadLabel(double threshold) {
+    if (threshold >= 0.9) return 'very strict';
+    if (threshold >= 0.8) return 'strict';
+    if (threshold >= 0.7) return 'moderate';
+    if (threshold >= 0.6) return 'sensitive';
+    return 'very sensitive';
+  }
 }
 
 @visibleForTesting

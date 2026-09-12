@@ -47,6 +47,7 @@ final class ConversationController extends ChangeNotifier
     Duration minimumSessionCaptureInterval = const Duration(seconds: 2),
     CaptureMode captureMode = CaptureMode.auto,
     ChatMode chatMode = ChatMode.chatty,
+    double vadThreshold = 0.85,
     this.captureAutoDelay = const Duration(seconds: 2),
   }) : diagnostics =
            diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
@@ -54,6 +55,7 @@ final class ConversationController extends ChangeNotifier
        _ownsVisionModes = visionModes == null,
        _captureMode = captureMode,
        _chatMode = chatMode,
+       _vadThreshold = vadThreshold,
        cameraSources = cameraSources ?? CameraSourceManager(sources: [camera]) {
     captureCoordinator = CaptureCoordinator(
       sources: this.cameraSources,
@@ -130,12 +132,22 @@ final class ConversationController extends ChangeNotifier
   final CameraSourceManager cameraSources;
   CaptureMode _captureMode;
   ChatMode _chatMode;
+  double _vadThreshold;
   final Duration captureAutoDelay;
 
   CaptureMode get captureMode => _captureMode;
   set captureMode(CaptureMode mode) {
     if (_captureMode == mode) return;
     _captureMode = mode;
+    notifyListeners();
+  }
+
+  double get vadThreshold => _vadThreshold;
+  set vadThreshold(double value) {
+    final clamped = value.clamp(0.0, 1.0);
+    if (_vadThreshold == clamped) return;
+    _vadThreshold = clamped;
+    unawaited(provider.updateVadThreshold(clamped));
     notifyListeners();
   }
 
