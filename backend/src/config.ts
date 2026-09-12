@@ -4,7 +4,7 @@ export interface Config {
   readonly allowedOrigin: string;
   readonly model: string;
   readonly apiBaseUrl: string;
-  readonly bingSearchApiKey?: string | undefined;
+  readonly braveSearchApiKey?: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -28,6 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       /\/$/,
       "",
     ),
-    bingSearchApiKey: env.BING_SEARCH_API_KEY?.trim() || undefined,
+    braveSearchApiKey: env.BRAVE_SEARCH_API_KEY?.trim() || undefined,
   };
 }

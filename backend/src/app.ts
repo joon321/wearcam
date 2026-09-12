@@ -97,7 +97,7 @@ export function createApp(
         return;
       }
       if (request.method === "POST" && request.url === "/v1/image-search") {
-        if (!config.bingSearchApiKey) {
+        if (!config.braveSearchApiKey) {
           json(
             response,
             501,
@@ -148,14 +148,16 @@ export function createApp(
         }
         try {
           const searchUrl = new URL(
-            "https://api.bing.microsoft.com/v7.0/images/search",
+            "https://api.search.brave.com/res/v1/images/search",
           );
           searchUrl.searchParams.set("q", query);
           searchUrl.searchParams.set("count", "1");
-          searchUrl.searchParams.set("safeSearch", "Strict");
+          searchUrl.searchParams.set("safesearch", "strict");
           const searchResponse = await requestFetch(searchUrl.toString(), {
             headers: {
-              "Ocp-Apim-Subscription-Key": config.bingSearchApiKey,
+              Accept: "application/json",
+              "Accept-Encoding": "gzip",
+              "X-Subscription-Token": config.braveSearchApiKey,
             },
             signal: AbortSignal.timeout(8_000),
           });
@@ -169,14 +171,15 @@ export function createApp(
             return;
           }
           const searchData = (await searchResponse.json()) as {
-            value?: Array<{
-              thumbnailUrl?: string;
-              contentUrl?: string;
-              name?: string;
+            results?: Array<{
+              thumbnail?: { src?: string };
+              url?: string;
+              title?: string;
             }>;
           };
-          const firstResult = searchData.value?.[0];
-          if (!firstResult?.thumbnailUrl) {
+          const firstResult = searchData.results?.[0];
+          const thumbnailUrl = firstResult?.thumbnail?.src;
+          if (!thumbnailUrl) {
             json(response, 200, { results: [] }, config.allowedOrigin);
             return;
           }
@@ -186,9 +189,9 @@ export function createApp(
             {
               results: [
                 {
-                  thumbnailUrl: firstResult.thumbnailUrl,
-                  sourceUrl: firstResult.contentUrl ?? firstResult.thumbnailUrl,
-                  title: firstResult.name ?? query,
+                  thumbnailUrl,
+                  sourceUrl: firstResult.url ?? thumbnailUrl,
+                  title: firstResult.title ?? query,
                 },
               ],
             },
