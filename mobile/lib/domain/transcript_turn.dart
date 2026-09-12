@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:wearcam/domain/image_annotation.dart';
+
 enum TranscriptRole { user, assistant }
 
 enum TranscriptStatus { streaming, completed, interrupted }
@@ -12,6 +14,7 @@ final class TranscriptTurn {
     required this.status,
     required this.createdAt,
     this.imageBytes,
+    this.annotations,
   });
 
   final String id;
@@ -20,11 +23,13 @@ final class TranscriptTurn {
   final TranscriptStatus status;
   final DateTime createdAt;
   final Uint8List? imageBytes;
+  final List<ImageAnnotation>? annotations;
 
   TranscriptTurn copyWith({
     String? text,
     TranscriptStatus? status,
     Uint8List? imageBytes,
+    List<ImageAnnotation>? annotations,
   }) =>
       TranscriptTurn(
         id: id,
@@ -33,5 +38,6 @@ final class TranscriptTurn {
         status: status ?? this.status,
         createdAt: createdAt,
         imageBytes: imageBytes ?? this.imageBytes,
+        annotations: annotations ?? this.annotations,
       );
 }

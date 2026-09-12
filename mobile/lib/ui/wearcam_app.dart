@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +12,7 @@ import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/capture_mode.dart';
 import 'package:wearcam/domain/chat_mode.dart';
+import 'package:wearcam/domain/image_annotation.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
@@ -439,10 +441,9 @@ final class _TranscriptBubble extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.memory(
-                    turn.imageBytes!,
-                    gaplessPlayback: true,
-                    width: 200,
+                  child: _AnnotatedImage(
+                    imageBytes: turn.imageBytes!,
+                    annotations: turn.annotations,
                   ),
                 ),
               ),
@@ -452,6 +453,102 @@ final class _TranscriptBubble extends StatelessWidget {
             if (turn.status == TranscriptStatus.interrupted)
               const Text('Interrupted', key: Key('interrupted-turn-status')),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+final class _AnnotatedImage extends StatelessWidget {
+  const _AnnotatedImage({required this.imageBytes, this.annotations});
+
+  final Uint8List imageBytes;
+  final List<ImageAnnotation>? annotations;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = Image.memory(imageBytes, gaplessPlayback: true, width: 200);
+    final regions = annotations;
+    if (regions == null || regions.isEmpty) return image;
+    return SizedBox(
+      width: 200,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return FutureBuilder<Size>(
+            future: _resolveImageSize(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) return image;
+              final imageSize = snapshot.data!;
+              final displayWidth = constraints.maxWidth;
+              final displayHeight =
+                  displayWidth * imageSize.height / imageSize.width;
+              return SizedBox(
+                width: displayWidth,
+                height: displayHeight,
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: image),
+                    for (final region in regions)
+                      Positioned(
+                        left: region.x * displayWidth,
+                        top: region.y * displayHeight,
+                        width: region.width * displayWidth,
+                        height: region.height * displayHeight,
+                        child: _AnnotationOverlay(label: region.label),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Future<Size> _resolveImageSize() async {
+    final completer = Completer<Size>();
+    ui.decodeImageFromList(imageBytes, (image) {
+      completer.complete(
+        Size(image.width.toDouble(), image.height.toDouble()),
+      );
+      image.dispose();
+    });
+    return completer.future;
+  }
+}
+
+final class _AnnotationOverlay extends StatelessWidget {
+  const _AnnotationOverlay({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: colors.primary, width: 2),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          decoration: BoxDecoration(
+            color: colors.primary,
+            borderRadius: const BorderRadius.only(
+              bottomRight: Radius.circular(4),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: colors.onPrimary,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ),
       ),
     );

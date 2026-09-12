@@ -83,6 +83,71 @@ test("returns only the short-lived credential and never the permanent key", asyn
             additionalProperties: false,
           },
         },
+        {
+          type: "function",
+          name: "highlight_object",
+          description:
+            "Highlight specific objects or areas in the most recently captured image. The app draws visual overlays so the user sees exactly what you mean. Use when the user asks where something is, or to visually guide them. Coordinates are normalized fractions of image width and height (0.0 to 1.0).",
+          parameters: {
+            type: "object",
+            properties: {
+              regions: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    x: {
+                      type: "number",
+                      description:
+                        "Left edge as fraction of image width (0.0–1.0)",
+                    },
+                    y: {
+                      type: "number",
+                      description:
+                        "Top edge as fraction of image height (0.0–1.0)",
+                    },
+                    width: {
+                      type: "number",
+                      description:
+                        "Width as fraction of image width (0.0–1.0)",
+                    },
+                    height: {
+                      type: "number",
+                      description:
+                        "Height as fraction of image height (0.0–1.0)",
+                    },
+                    label: {
+                      type: "string",
+                      description: "Short label for the region",
+                    },
+                  },
+                  required: ["x", "y", "width", "height", "label"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["regions"],
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "show_reference_image",
+          description:
+            "Search for and display a reference photo when the user does not know what something looks like. The image appears in the conversation. Use when the user asks 'what does X look like?' or says they don't recognize something.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description:
+                  "Descriptive search query for the reference image",
+              },
+            },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
       ],
       tool_choice: "auto",
     },

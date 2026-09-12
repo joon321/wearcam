@@ -10,6 +10,7 @@ import 'package:wearcam/domain/ai_provider.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/capture_mode.dart';
 import 'package:wearcam/domain/chat_mode.dart';
+import 'package:wearcam/domain/image_annotation.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
@@ -299,7 +300,16 @@ final class ConversationController extends ChangeNotifier
   }
 
   Future<void> _handleToolCall(ToolCall call) async {
-    if (_disposed || call.name != 'get_current_view') return;
+    if (_disposed) return;
+    if (call.name == 'highlight_object') {
+      await _handleHighlightObject(call);
+      return;
+    }
+    if (call.name == 'show_reference_image') {
+      await _handleShowReferenceImage(call);
+      return;
+    }
+    if (call.name != 'get_current_view') return;
     final completion = Completer<void>();
     _activeToolCall = completion;
     final generation = _privacyGeneration;
@@ -401,6 +411,94 @@ final class ConversationController extends ChangeNotifier
         'ok': false,
         'reason': 'visual transmission cancelled',
       });
+
+  Future<void> _handleHighlightObject(ToolCall call) async {
+    final frame = lastTransmittedFrame;
+    if (frame == null) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'no image has been captured yet',
+      });
+      return;
+    }
+    final rawRegions = call.arguments['regions'];
+    if (rawRegions is! List || rawRegions.isEmpty) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'regions parameter is required',
+      });
+      return;
+    }
+    final annotations = <ImageAnnotation>[];
+    for (final r in rawRegions) {
+      if (r is! Map<String, dynamic>) continue;
+      final x = (r['x'] as num?)?.toDouble();
+      final y = (r['y'] as num?)?.toDouble();
+      final w = (r['width'] as num?)?.toDouble();
+      final h = (r['height'] as num?)?.toDouble();
+      final label = r['label'] as String?;
+      if (x == null || y == null || w == null || h == null || label == null) {
+        continue;
+      }
+      annotations.add(
+        ImageAnnotation(x: x, y: y, width: w, height: h, label: label),
+      );
+    }
+    if (annotations.isEmpty) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'no valid regions provided',
+      });
+      return;
+    }
+    _upsertTranscriptTurn(TranscriptTurn(
+      id: 'highlight-${call.callId}',
+      role: TranscriptRole.assistant,
+      text: '',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+      imageBytes: frame.jpegBytes,
+      annotations: annotations,
+    ));
+    notifyListeners();
+    await provider.completeToolCall(call.callId, {
+      'ok': true,
+      'highlighted': annotations.length,
+    });
+  }
+
+  Future<void> _handleShowReferenceImage(ToolCall call) async {
+    final query = call.arguments['query'] as String?;
+    if (query == null || query.trim().isEmpty) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'query parameter is required',
+      });
+      return;
+    }
+    final result = await provider.searchImage(query.trim());
+    if (result == null) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'no reference image found for "$query"',
+      });
+      return;
+    }
+    _upsertTranscriptTurn(TranscriptTurn(
+      id: 'reference-${call.callId}',
+      role: TranscriptRole.assistant,
+      text: result.title,
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+      imageBytes: result.imageBytes,
+    ));
+    notifyListeners();
+    await provider.completeToolCall(call.callId, {
+      'ok': true,
+      'title': result.title,
+      'source': result.sourceUrl,
+    });
+  }
 
   void _cancelManualCapture() {
     final signal = _manualCaptureSignal;

@@ -354,6 +354,38 @@ final class OpenAIRealtimeProvider implements AIProvider {
   }
 
   @override
+  Future<ImageSearchResult?> searchImage(String query) async {
+    try {
+      final response = await _http
+          .post(
+            backendBaseUri.resolve('/v1/image-search'),
+            headers: const {'content-type': 'application/json'},
+            body: jsonEncode({'query': query}),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) return null;
+      final data = jsonDecode(response.body);
+      if (data is! Map<String, dynamic>) return null;
+      final results = data['results'];
+      if (results is! List || results.isEmpty) return null;
+      final first = results[0] as Map<String, dynamic>;
+      final thumbnailUrl = first['thumbnailUrl'] as String?;
+      if (thumbnailUrl == null || thumbnailUrl.isEmpty) return null;
+      final imageResponse = await _http
+          .get(Uri.parse(thumbnailUrl))
+          .timeout(const Duration(seconds: 8));
+      if (imageResponse.statusCode != 200) return null;
+      return ImageSearchResult(
+        imageBytes: imageResponse.bodyBytes,
+        title: (first['title'] as String?) ?? query,
+        sourceUrl: (first['sourceUrl'] as String?) ?? thumbnailUrl,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<void> interrupt() async {
     _interruptActiveAssistantTurns();
     _send(OpenAIRealtimeProtocol.responseCancel);

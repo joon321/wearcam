@@ -959,4 +959,6 @@ final class FakeProvider implements AIProvider {
   Future<void> setMicrophoneMuted(bool muted) async {}
   @override
   Future<void> updateSessionInstructions(String instructions) async {}
+  @override
+  Future<ImageSearchResult?> searchImage(String query) async => null;
 }
