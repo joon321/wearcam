@@ -25,6 +25,8 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
   RTCPeerConnection? _peer;
   RTCDataChannel? _events;
   MediaStream? _localStream;
+  RTCRtpSender? _audioSender;
+  MediaStreamTrack? _audioTrack;
   final Completer<void> _connected = Completer<void>();
   bool _manualMuted = false;
   bool _noiseGateEnabled = false;
@@ -41,9 +43,7 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
       'video': false,
     });
     _localStream = stream;
-    for (final track in stream.getAudioTracks()) {
-      track.enabled = !muted;
-    }
+    _manualMuted = muted;
   }
 
   @override
@@ -64,7 +64,8 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
     final stream = _localStream;
     if (stream == null) throw StateError('Microphone stream is unavailable.');
     for (final track in stream.getAudioTracks()) {
-      await peer.addTrack(track, stream);
+      _audioTrack = track;
+      _audioSender = await peer.addTrack(track, stream);
     }
     final channel = await peer.createDataChannel(
       'oai-events',
@@ -129,10 +130,10 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
   }
 
   void _applyTrackState() {
-    final shouldEnable = !_manualMuted && (!_noiseGateEnabled || _noiseGateOpen);
-    for (final track
-        in _localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
-      track.enabled = shouldEnable;
+    final shouldSend = !_manualMuted && (!_noiseGateEnabled || _noiseGateOpen);
+    final sender = _audioSender;
+    if (sender != null) {
+      unawaited(sender.replaceTrack(shouldSend ? _audioTrack : null));
     }
   }
 
@@ -142,14 +143,24 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
       final peer = _peer;
       if (peer == null || _manualMuted) return;
       try {
-        final stats = await peer.getStats();
+        final stats = await peer.getStats(_audioTrack);
         double maxLevel = 0;
         for (final report in stats) {
+          // Standard format (Chrome desktop, newer implementations)
           if (report.type == 'media-source' &&
               report.values['kind'] == 'audio') {
             final level = report.values['audioLevel'];
             if (level is num && level > maxLevel) {
               maxLevel = level.toDouble();
+            }
+          }
+          // Legacy format (Android, older implementations): 0-32768 integer
+          if (report.type == 'ssrc' &&
+              report.values['mediaType'] == 'audio') {
+            final level = report.values['audioInputLevel'];
+            if (level is num && level > 0) {
+              final normalized = (level / 32768.0).clamp(0.0, 1.0);
+              if (normalized > maxLevel) maxLevel = normalized;
             }
           }
         }
@@ -181,6 +192,8 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
     final events = _events;
     final peer = _peer;
     _localStream = null;
+    _audioSender = null;
+    _audioTrack = null;
     _events = null;
     _peer = null;
     await runRealtimeCleanup([
