@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:wearcam/domain/prepared_frame.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
@@ -32,6 +33,20 @@ abstract interface class AIProvider {
   Future<void> sendImage(PreparedFrame frame, String context);
   Future<void> completeToolCall(String callId, Map<String, Object?> output);
   Future<void> setMicrophoneMuted(bool muted);
+  Future<void> updateSessionInstructions(String instructions);
+  Future<void> updateVadThreshold(double threshold);
+  Future<ImageSearchResult?> searchImage(String query);
   Future<void> interrupt();
   Future<void> stopSession();
+}
+
+final class ImageSearchResult {
+  const ImageSearchResult({
+    required this.imageBytes,
+    required this.title,
+    required this.sourceUrl,
+  });
+  final Uint8List imageBytes;
+  final String title;
+  final String sourceUrl;
 }

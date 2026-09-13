@@ -79,8 +79,24 @@ The app decodes it, bakes orientation into pixels, resizes the long edge to at m
 1280, computes a grayscale Laplacian-variance sharpness score, and encodes at JPEG
 quality 82. Frames older than five seconds or with invalid dimensions are rejected.
 
+## Screen wakelock
+
+The phone's default screen timeout suspends the display and may kill the WebRTC
+connection during an active visual conversation. `wakelock_plus` keeps the screen
+on while the AI session is connected and releases it on stop, disposal, or
+disconnection. The wakelock is purely display-level; it does not prevent the OS
+from managing CPU or radio power in the background.
+
+## Greeting timing
+
+The connection greeting is added to the local transcript immediately when the
+WebRTC session reaches `connected`, before the model generates audio. This gives
+the user instant visual confirmation that the session is ready. The model still
+receives the greeting request and produces the spoken audio; the local transcript
+entry ensures responsiveness regardless of model generation latency.
+
 ## Platform assumptions
 
-Flutter's `camera` plugin owns the rear-camera lifecycle. `flutter_webrtc` owns
+Flutter's `camera` plugin owns the phone-camera lifecycle. `flutter_webrtc` owns
 microphone capture, audio routing, peer connection, and data channel. Bluetooth
 routing is selected by Android/iOS; the MVP does not force a private audio route.

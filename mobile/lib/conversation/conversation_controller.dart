@@ -1,18 +1,60 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/capture_coordinator.dart';
 import 'package:wearcam/camera/frame_processor.dart';
 import 'package:wearcam/domain/ai_provider.dart';
+import 'package:wearcam/domain/app_language.dart';
 import 'package:wearcam/domain/camera_source.dart';
+import 'package:wearcam/domain/capture_mode.dart';
+import 'package:wearcam/domain/chat_mode.dart';
+import 'package:wearcam/domain/image_annotation.dart';
 import 'package:wearcam/domain/prepared_frame.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
-final class ConversationController extends ChangeNotifier {
-  static const connectionGreeting =
-      "Hi, I’m ready. Tell me what you’re working on, and I’ll look when it would help.";
+Future<void> _setWakelock(bool enabled) async {
+  try {
+    await (enabled ? WakelockPlus.enable() : WakelockPlus.disable());
+  } on PlatformException {
+    debugPrint('WearCam wakelock unavailable on this platform');
+  } on MissingPluginException {
+    debugPrint('WearCam wakelock plugin not registered on this platform');
+  }
+}
+
+enum CaptureState { idle, previewing }
+
+final class ConversationController extends ChangeNotifier
+    with WidgetsBindingObserver {
+  static const connectionGreetingChatty =
+      "Hi, I'm ready. Tell me what you're working on, and I'll look when it would help.";
+  static const connectionGreetingChill = 'Ready when you are.';
+
+  static const _baseInstructions =
+      'You are WearCam, a concise spoken assistant in a visual conversation. '
+      'Visual access is already authorized while the bridge reports it enabled. '
+      'Never ask the user to authorize or start a visual session.'
+      '\nNEVER speak unless the user speaks to you first. Do not initiate conversation, '
+      'ask unprompted questions, offer unsolicited commentary, or act on your own initiative. '
+      'Wait silently until the user clearly addresses you. If there is silence, stay silent.'
+      '\nOnly call get_current_view when the user explicitly asks you to look at something. '
+      'Never capture proactively. Keep responses short.'
+      '\nAfter receiving an image, do not describe what you see unless asked. Acknowledge briefly and wait.'
+      "\nCRITICAL RULE: If the audio is unclear, garbled, noisy, or not clearly intelligible human speech, "
+      "stay completely silent. Produce absolutely no output. Never say \"I can't hear you\" or similar. "
+      'Only respond to clear human speech directed at you. Ignore ambient sounds, music, TV, and environmental noise.';
+  static const _chattyInstructions =
+      'Respond in a natural, conversational tone. Keep answers concise but friendly.';
+  static const _chillInstructions =
+      'Respond with the absolute minimum words necessary. One to five words max when possible. No filler, no pleasantries, no elaboration unless the user explicitly asks for detail. Be direct and terse.';
+  static const _noiseBlockInstructions =
+      'If you receive a very short transcription (one or two syllables, a single character, '
+      'or an unclear/ambiguous utterance), ignore it completely and produce no output. '
+      'Only respond to clear, intelligible multi-word speech directed at you.';
   ConversationController({
     required this.camera,
     required this.provider,
@@ -21,11 +63,21 @@ final class ConversationController extends ChangeNotifier {
     VisionAuthorizationController? visionModes,
     CameraSourceManager? cameraSources,
     Duration minimumSessionCaptureInterval = const Duration(seconds: 2),
-    this.positioningDelay = const Duration(milliseconds: 750),
+    CaptureMode captureMode = CaptureMode.auto,
+    ChatMode chatMode = ChatMode.chatty,
+    double vadThreshold = 0.95,
+    bool noiseBlock = true,
+    AppLanguage language = AppLanguage.english,
+    this.captureAutoDelay = const Duration(seconds: 2),
   }) : diagnostics =
            diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
        visionModes = visionModes ?? VisionAuthorizationController(),
        _ownsVisionModes = visionModes == null,
+       _captureMode = captureMode,
+       _chatMode = chatMode,
+       _vadThreshold = vadThreshold,
+       _noiseBlock = noiseBlock,
+       _language = language,
        cameraSources = cameraSources ?? CameraSourceManager(sources: [camera]) {
     captureCoordinator = CaptureCoordinator(
       sources: this.cameraSources,
@@ -44,11 +96,14 @@ final class ConversationController extends ChangeNotifier {
       connectionState = state;
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
+        _applySessionSettings();
         unawaited(provider.sendGreeting(connectionGreeting));
+        unawaited(_setWakelock(true));
       }
       if (state == AIConnectionState.disconnected ||
           state == AIConnectionState.failed) {
         this.visionModes.revoke();
+        unawaited(_setWakelock(false));
       }
       notifyListeners();
     });
@@ -58,6 +113,9 @@ final class ConversationController extends ChangeNotifier {
       _handleAuthorizationTranscript(turn);
       notifyListeners();
     });
+    try {
+      WidgetsBinding.instance.addObserver(this);
+    } catch (_) {}
   }
 
   void _bindCameraStatus(CameraSource source) {
@@ -67,6 +125,7 @@ final class ConversationController extends ChangeNotifier {
       if (state == CameraStatus.disconnected || state == CameraStatus.failed) {
         visionModes.revoke();
         _privacyGeneration += 1;
+        _cancelManualCapture();
         if (!_disposed) notifyListeners();
       }
     });
@@ -76,14 +135,102 @@ final class ConversationController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        connectionState == AIConnectionState.connected) {
+      unawaited(_setWakelock(true));
+    }
+  }
+
   final CameraSource camera;
   final AIProvider provider;
   final ConnectionDiagnostics diagnostics;
   final FrameProcessor processor;
-  final Duration positioningDelay;
   final VisionAuthorizationController visionModes;
   final bool _ownsVisionModes;
   final CameraSourceManager cameraSources;
+  CaptureMode _captureMode;
+  ChatMode _chatMode;
+  double _vadThreshold;
+  bool _noiseBlock;
+  AppLanguage _language;
+  final Duration captureAutoDelay;
+
+  CaptureMode get captureMode => _captureMode;
+  set captureMode(CaptureMode mode) {
+    if (_captureMode == mode) return;
+    _captureMode = mode;
+    notifyListeners();
+  }
+
+  double get vadThreshold => _vadThreshold;
+  set vadThreshold(double value) {
+    final clamped = value.clamp(0.0, 1.0);
+    if (_vadThreshold == clamped) return;
+    _vadThreshold = clamped;
+    unawaited(provider.updateVadThreshold(clamped));
+    notifyListeners();
+  }
+
+  ChatMode get chatMode => _chatMode;
+  set chatMode(ChatMode mode) {
+    if (_chatMode == mode) return;
+    _chatMode = mode;
+    if (connectionState == AIConnectionState.connected) {
+      _applySessionSettings();
+    }
+    notifyListeners();
+  }
+
+  bool get noiseBlock => _noiseBlock;
+  set noiseBlock(bool value) {
+    if (_noiseBlock == value) return;
+    _noiseBlock = value;
+    final newThreshold = value ? 0.95 : 0.70;
+    _vadThreshold = newThreshold;
+    if (connectionState == AIConnectionState.connected) {
+      unawaited(provider.updateVadThreshold(newThreshold));
+      _applySessionSettings();
+    }
+    notifyListeners();
+  }
+
+  AppLanguage get language => _language;
+  set language(AppLanguage value) {
+    if (_language == value) return;
+    _language = value;
+    if (connectionState == AIConnectionState.connected) {
+      _applySessionSettings();
+    }
+    notifyListeners();
+  }
+
+  String get connectionGreeting {
+    if (_language == AppLanguage.korean) {
+      return _chatMode == ChatMode.chill
+          ? '준비됐어요.'
+          : '안녕하세요! 편하게 말씀해주세요.';
+    }
+    return _chatMode == ChatMode.chill
+        ? connectionGreetingChill
+        : connectionGreetingChatty;
+  }
+
+  String _buildInstructions() {
+    final mode =
+        _chatMode == ChatMode.chill ? _chillInstructions : _chattyInstructions;
+    final lang = _language == AppLanguage.korean
+        ? '항상 한국어로 답변하세요. Always respond in Korean.'
+        : 'Always respond in English.';
+    final parts = [_baseInstructions, mode, lang];
+    if (_noiseBlock) parts.add(_noiseBlockInstructions);
+    return parts.join('\n');
+  }
+
+  void _applySessionSettings() {
+    unawaited(provider.updateSessionInstructions(_buildInstructions()));
+  }
   late final CaptureCoordinator captureCoordinator;
   late final StreamSubscription<ToolCall> _toolSubscription;
   StreamSubscription<CameraStatus>? _cameraSubscription;
@@ -96,12 +243,13 @@ final class ConversationController extends ChangeNotifier {
   List<TranscriptTurn> get transcriptTurns =>
       List.unmodifiable(_transcriptTurns);
   String? error;
-  String? positioningGuidance;
+  CaptureState captureState = CaptureState.idle;
   bool microphoneMuted = false;
   bool _disposed = false;
   bool _greetedThisSession = false;
   int _privacyGeneration = 0;
   Completer<void>? _activeToolCall;
+  Completer<void>? _manualCaptureSignal;
   Future<void>? _stopInProgress;
   Future<void>? _startInProgress;
 
@@ -114,6 +262,11 @@ final class ConversationController extends ChangeNotifier {
 
   Future<void> get activeToolCallCompleted =>
       _activeToolCall?.future ?? Future<void>.value();
+
+  void triggerCapture() {
+    final signal = _manualCaptureSignal;
+    if (signal != null && !signal.isCompleted) signal.complete();
+  }
 
   Future<void> start() {
     final existing = _startInProgress;
@@ -163,9 +316,7 @@ final class ConversationController extends ChangeNotifier {
     } catch (caught) {
       try {
         await cameraSources.selectedSource.disconnect();
-      } catch (_) {
-        // Preserve the provider failure below; camera cleanup is best-effort.
-      }
+      } catch (_) {}
       error = 'connection failed (${caught.runtimeType})';
       connectionState = AIConnectionState.disconnected;
       notifyListeners();
@@ -192,6 +343,7 @@ final class ConversationController extends ChangeNotifier {
       debugPrint('WearCam visual access stopped by user');
     } else if (_isResumeLooking(text) || _directLookRequest(text)) {
       visionModes.enable();
+      unawaited(_notifyVisionResumed());
       debugPrint('WearCam visual access resumed by user');
     }
   }
@@ -225,17 +377,32 @@ final class ConversationController extends ChangeNotifier {
   }
 
   Future<void> _handleToolCall(ToolCall call) async {
-    if (_disposed || call.name != 'get_current_view') return;
+    if (_disposed) return;
+    if (call.name == 'highlight_object') {
+      await _handleHighlightObject(call);
+      return;
+    }
+    if (call.name == 'show_reference_image') {
+      await _handleShowReferenceImage(call);
+      return;
+    }
+    if (call.name != 'get_current_view') return;
     final completion = Completer<void>();
     _activeToolCall = completion;
     final generation = _privacyGeneration;
     try {
-      positioningGuidance =
-          cameraSources.selectedSource.capabilities.isHeadMounted
-          ? 'Look directly at the object for a moment.'
-          : 'Point your phone camera at the object and hold still.';
+      captureState = CaptureState.previewing;
       notifyListeners();
-      await Future<void>.delayed(positioningDelay);
+
+      if (captureMode == CaptureMode.manual) {
+        final signal = Completer<void>();
+        _manualCaptureSignal = signal;
+        await signal.future;
+        _manualCaptureSignal = null;
+      } else {
+        await Future<void>.delayed(captureAutoDelay);
+      }
+
       if (_toolCallCancelled(generation)) {
         await _completePrivacyCancellation(call.callId);
         return;
@@ -260,6 +427,14 @@ final class ConversationController extends ChangeNotifier {
         return;
       }
       lastTransmittedFrame = prepared;
+      _upsertTranscriptTurn(TranscriptTurn(
+        id: 'capture-${call.callId}',
+        role: TranscriptRole.user,
+        text: '',
+        status: TranscriptStatus.completed,
+        createdAt: prepared.capturedAt,
+        imageBytes: prepared.jpegBytes,
+      ));
       debugPrint('WearCam image transmission succeeded');
       await provider.completeToolCall(call.callId, {
         'ok': true,
@@ -274,7 +449,8 @@ final class ConversationController extends ChangeNotifier {
         'reason': 'fresh frame unavailable',
       });
     } finally {
-      positioningGuidance = null;
+      captureState = CaptureState.idle;
+      _manualCaptureSignal = null;
       if (!_disposed) notifyListeners();
       if (!completion.isCompleted) completion.complete();
     }
@@ -313,8 +489,105 @@ final class ConversationController extends ChangeNotifier {
         'reason': 'visual transmission cancelled',
       });
 
+  Future<void> _handleHighlightObject(ToolCall call) async {
+    final frame = lastTransmittedFrame;
+    if (frame == null) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'no image has been captured yet',
+      });
+      return;
+    }
+    final rawRegions = call.arguments['regions'];
+    if (rawRegions is! List || rawRegions.isEmpty) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'regions parameter is required',
+      });
+      return;
+    }
+    final annotations = <ImageAnnotation>[];
+    for (final r in rawRegions) {
+      if (r is! Map<String, dynamic>) continue;
+      final x = (r['x'] as num?)?.toDouble();
+      final y = (r['y'] as num?)?.toDouble();
+      final w = (r['width'] as num?)?.toDouble();
+      final h = (r['height'] as num?)?.toDouble();
+      final label = r['label'] as String?;
+      if (x == null || y == null || w == null || h == null || label == null) {
+        continue;
+      }
+      if (x + w > 1.0 || y + h > 1.0) continue;
+      annotations.add(
+        ImageAnnotation(x: x, y: y, width: w, height: h, label: label),
+      );
+    }
+    if (annotations.isEmpty) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'no valid regions provided',
+      });
+      return;
+    }
+    _upsertTranscriptTurn(TranscriptTurn(
+      id: 'highlight-${call.callId}',
+      role: TranscriptRole.assistant,
+      text: '',
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+      imageBytes: frame.jpegBytes,
+      annotations: annotations,
+    ));
+    notifyListeners();
+    await provider.completeToolCall(call.callId, {
+      'ok': true,
+      'highlighted': annotations.length,
+    });
+  }
+
+  Future<void> _handleShowReferenceImage(ToolCall call) async {
+    final query = call.arguments['query'] as String?;
+    if (query == null || query.trim().isEmpty) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'query parameter is required',
+      });
+      return;
+    }
+    final generation = _privacyGeneration;
+    final result = await provider.searchImage(query.trim());
+    if (_disposed || generation != _privacyGeneration) return;
+    if (result == null) {
+      await provider.completeToolCall(call.callId, {
+        'ok': false,
+        'reason': 'no reference image found for "$query"',
+      });
+      return;
+    }
+    _upsertTranscriptTurn(TranscriptTurn(
+      id: 'reference-${call.callId}',
+      role: TranscriptRole.assistant,
+      text: result.title,
+      status: TranscriptStatus.completed,
+      createdAt: DateTime.now().toUtc(),
+      imageBytes: result.imageBytes,
+    ));
+    notifyListeners();
+    await provider.completeToolCall(call.callId, {
+      'ok': true,
+      'title': result.title,
+      'source': result.sourceUrl,
+    });
+  }
+
+  void _cancelManualCapture() {
+    final signal = _manualCaptureSignal;
+    if (signal != null && !signal.isCompleted) signal.complete();
+  }
+
   Future<void> stopLooking() async {
     _privacyGeneration += 1;
+    _cancelManualCapture();
     captureCoordinator.cancel();
     lastTransmittedFrame = null;
     notifyListeners();
@@ -323,9 +596,20 @@ final class ConversationController extends ChangeNotifier {
     );
   }
 
-  void resumeLooking() {
+  Future<void> resumeLooking() async {
     visionModes.enable();
     notifyListeners();
+    await _notifyVisionResumed();
+  }
+
+  Future<void> _notifyVisionResumed() async {
+    try {
+      await provider.sendText(
+        'Looking is back on. You can use the camera again when it would help.',
+      );
+    } catch (e) {
+      debugPrint('WearCam failed to notify AI of vision resume: $e');
+    }
   }
 
   Future<void> toggleMute() async {
@@ -346,9 +630,11 @@ final class ConversationController extends ChangeNotifier {
 
   Future<void> _stopEverything() async {
     _privacyGeneration += 1;
+    _cancelManualCapture();
     visionModes.revoke();
     lastTransmittedFrame = null;
     microphoneMuted = false;
+    unawaited(_setWakelock(false));
     await provider.stopSession();
     await cameraSources.selectedSource.disconnect();
     if (!_disposed) notifyListeners();
@@ -358,6 +644,11 @@ final class ConversationController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _privacyGeneration += 1;
+    _cancelManualCapture();
+    unawaited(_setWakelock(false));
+    try {
+      WidgetsBinding.instance.removeObserver(this);
+    } catch (_) {}
     visionModes.removeListener(_handleAuthorizationChanged);
     visionModes.revoke();
     if (_ownsVisionModes) visionModes.dispose();

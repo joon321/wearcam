@@ -76,10 +76,64 @@ test("returns only the short-lived credential and never the permanent key", asyn
           type: "function",
           name: "get_current_view",
           description:
-            "Request one fresh task-relevant still image during the active visual conversation after giving source-appropriate positioning guidance.",
+            "Capture one fresh still image from the user's camera. The app handles camera preview and positioning. Call immediately when the user asks you to look at something.",
           parameters: {
             type: "object",
             properties: {},
+            additionalProperties: false,
+          },
+        },
+        {
+          type: "function",
+          name: "highlight_object",
+          description:
+            "Highlight specific objects or areas in the most recently captured image. The app draws visual overlays so the user sees exactly what you mean. Use when the user asks where something is, or to visually guide them. Coordinates are normalized fractions of image width and height (0.0 to 1.0).",
+          parameters: {
+            type: "object",
+            properties: {
+              regions: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    x: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 1,
+                      description:
+                        "Left edge as fraction of image width (0.0–1.0)",
+                    },
+                    y: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 1,
+                      description:
+                        "Top edge as fraction of image height (0.0–1.0)",
+                    },
+                    width: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 1,
+                      description: "Width as fraction of image width (0.0–1.0)",
+                    },
+                    height: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 1,
+                      description:
+                        "Height as fraction of image height (0.0–1.0)",
+                    },
+                    label: {
+                      type: "string",
+                      description: "Short label for the region",
+                    },
+                  },
+                  required: ["x", "y", "width", "height", "label"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["regions"],
             additionalProperties: false,
           },
         },

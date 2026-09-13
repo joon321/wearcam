@@ -7,9 +7,15 @@ import type { Config } from "./config.ts";
 import { FixedWindowRateLimiter } from "./rate-limit.ts";
 
 const MAX_BODY_BYTES = 1024;
+const IMAGE_SEARCH_BODY_LIMIT = 512;
 export const INSTRUCTIONS = `You are WearCam, a concise spoken assistant in a user-started visual conversation. Visual access is already authorized while the bridge reports it enabled. Never ask the user to authorize, confirm, say “ready”, choose a visual scope, or start a visual session.
-When seeing the current scene would materially help, briefly tell the user how to position the selected camera, then call get_current_view. For the Phone camera say: “Point your phone camera at the object and hold still.” Ask for a closer view, different angle, or better lighting when relevant. Request only fresh task-relevant still images and never continuous video or periodic frames.
-Never claim to see anything before successful image transmission. If the bridge returns vision_disabled, say that looking is currently off and that the user can say “resume looking” or press Resume Looking. Respect Stop Looking immediately while continuing the voice conversation.`;
+NEVER speak unless the user speaks to you first. Do not initiate conversation, ask unprompted questions like “do you want to show me something?”, offer unsolicited commentary, or act on your own initiative. Wait silently until the user clearly addresses you. If there is silence, stay silent.
+Only call get_current_view when the user explicitly asks you to look at something (e.g. “look at this”, “can you see this”, “check this out”). Never capture proactively or on your own initiative. Do not tell the user to position or point the camera — the app handles that. Keep responses short and conversational.
+After receiving an image, do not describe or narrate what you see unless the user asks a question about it. Simply acknowledge briefly (e.g. “Got it” or “I see it”) and wait for the user to ask. Never claim to see anything before successful image transmission.
+If the bridge returns vision_disabled, say that looking is currently off and that the user can say “resume looking” or press Resume Looking. Respect Stop Looking immediately while continuing the voice conversation.
+CRITICAL RULE: If the audio is unclear, garbled, noisy, or not clearly intelligible human speech, you MUST stay completely silent. Produce absolutely no output — no speech, no text, no acknowledgement. Never say "I can't hear you", "could you repeat that", "I hear background noise", or anything similar. Simply produce nothing. Only respond when you clearly understand complete spoken words from a human voice directed at you. Ambient sounds, music, TV, traffic, and environmental noise must be completely ignored unless the user has explicitly asked you to listen to surroundings.
+When you want to point out or highlight specific objects or areas in a captured image, call highlight_object with normalized coordinates (0.0–1.0). The app draws visual overlays so the user can see exactly what you mean.
+When the user doesn't know what something looks like and needs a visual reference, call show_reference_image with a descriptive search query. The app will find and display a reference photo in the conversation.`;
 
 type Fetch = typeof fetch;
 type RequestLog = (entry: {
@@ -91,6 +97,119 @@ export function createApp(
         json(response, 200, { status: "ok" }, config.allowedOrigin);
         return;
       }
+      if (request.method === "POST" && request.url === "/v1/image-search") {
+        if (!config.braveSearchApiKey) {
+          json(
+            response,
+            501,
+            { error: { code: "image_search_not_configured", requestId } },
+            config.allowedOrigin,
+          );
+          return;
+        }
+        const clientAddress = request.socket.remoteAddress ?? "unknown";
+        if (!limiter.allow(`img:${clientAddress}`)) {
+          json(
+            response,
+            429,
+            { error: { code: "rate_limited", requestId } },
+            config.allowedOrigin,
+          );
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of request) {
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          size += buf.length;
+          if (size > IMAGE_SEARCH_BODY_LIMIT)
+            throw new Error("request_too_large");
+          chunks.push(buf);
+        }
+        const body = Buffer.concat(chunks).toString("utf-8");
+        let query: string;
+        try {
+          const parsed = JSON.parse(body);
+          query = typeof parsed.query === "string" ? parsed.query.trim() : "";
+        } catch {
+          json(
+            response,
+            400,
+            { error: { code: "invalid_body", requestId } },
+            config.allowedOrigin,
+          );
+          return;
+        }
+        if (!query) {
+          json(
+            response,
+            400,
+            { error: { code: "missing_query", requestId } },
+            config.allowedOrigin,
+          );
+          return;
+        }
+        try {
+          const searchUrl = new URL(
+            "https://api.search.brave.com/res/v1/images/search",
+          );
+          searchUrl.searchParams.set("q", query);
+          searchUrl.searchParams.set("count", "1");
+          searchUrl.searchParams.set("safesearch", "strict");
+          const searchResponse = await requestFetch(searchUrl.toString(), {
+            headers: {
+              Accept: "application/json",
+              "Accept-Encoding": "gzip",
+              "X-Subscription-Token": config.braveSearchApiKey,
+            },
+            signal: AbortSignal.timeout(8_000),
+          });
+          if (!searchResponse.ok) {
+            json(
+              response,
+              502,
+              { error: { code: "image_search_failed", requestId } },
+              config.allowedOrigin,
+            );
+            return;
+          }
+          const searchData = (await searchResponse.json()) as {
+            results?: Array<{
+              thumbnail?: { src?: string };
+              url?: string;
+              title?: string;
+            }>;
+          };
+          const firstResult = searchData.results?.[0];
+          const thumbnailUrl = firstResult?.thumbnail?.src;
+          if (!thumbnailUrl) {
+            json(response, 200, { results: [] }, config.allowedOrigin);
+            return;
+          }
+          json(
+            response,
+            200,
+            {
+              results: [
+                {
+                  thumbnailUrl,
+                  sourceUrl: firstResult.url ?? thumbnailUrl,
+                  title: firstResult.title ?? query,
+                },
+              ],
+            },
+            config.allowedOrigin,
+          );
+        } catch {
+          json(
+            response,
+            502,
+            { error: { code: "image_search_failed", requestId } },
+            config.allowedOrigin,
+          );
+        }
+        return;
+      }
       if (
         request.method !== "POST" ||
         request.url !== "/v1/realtime/client-secret"
@@ -134,14 +253,91 @@ export function createApp(
               },
               instructions: INSTRUCTIONS,
               tools: [
+                ...(config.braveSearchApiKey
+                  ? [
+                      {
+                        type: "function" as const,
+                        name: "show_reference_image",
+                        description:
+                          "Search for and display a reference photo when the user does not know what something looks like. The image appears in the conversation. Use when the user asks 'what does X look like?' or says they don't recognize something.",
+                        parameters: {
+                          type: "object",
+                          properties: {
+                            query: {
+                              type: "string",
+                              description:
+                                "Descriptive search query for the reference image",
+                            },
+                          },
+                          required: ["query"],
+                          additionalProperties: false,
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   type: "function",
                   name: "get_current_view",
                   description:
-                    "Request one fresh task-relevant still image during the active visual conversation after giving source-appropriate positioning guidance.",
+                    "Capture one fresh still image from the user's camera. The app handles camera preview and positioning. Call immediately when the user asks you to look at something.",
                   parameters: {
                     type: "object",
                     properties: {},
+                    additionalProperties: false,
+                  },
+                },
+                {
+                  type: "function",
+                  name: "highlight_object",
+                  description:
+                    "Highlight specific objects or areas in the most recently captured image. The app draws visual overlays so the user sees exactly what you mean. Use when the user asks where something is, or to visually guide them. Coordinates are normalized fractions of image width and height (0.0 to 1.0).",
+                  parameters: {
+                    type: "object",
+                    properties: {
+                      regions: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            x: {
+                              type: "number",
+                              minimum: 0,
+                              maximum: 1,
+                              description:
+                                "Left edge as fraction of image width (0.0–1.0)",
+                            },
+                            y: {
+                              type: "number",
+                              minimum: 0,
+                              maximum: 1,
+                              description:
+                                "Top edge as fraction of image height (0.0–1.0)",
+                            },
+                            width: {
+                              type: "number",
+                              minimum: 0,
+                              maximum: 1,
+                              description:
+                                "Width as fraction of image width (0.0–1.0)",
+                            },
+                            height: {
+                              type: "number",
+                              minimum: 0,
+                              maximum: 1,
+                              description:
+                                "Height as fraction of image height (0.0–1.0)",
+                            },
+                            label: {
+                              type: "string",
+                              description: "Short label for the region",
+                            },
+                          },
+                          required: ["x", "y", "width", "height", "label"],
+                          additionalProperties: false,
+                        },
+                      },
+                    },
+                    required: ["regions"],
                     additionalProperties: false,
                   },
                 },

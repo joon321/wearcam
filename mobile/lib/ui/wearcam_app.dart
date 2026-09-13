@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:ui' as ui;
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +9,11 @@ import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/phone_camera_source.dart';
 import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
+import 'package:wearcam/domain/app_language.dart';
+import 'package:wearcam/domain/camera_source.dart';
+import 'package:wearcam/domain/capture_mode.dart';
+import 'package:wearcam/domain/chat_mode.dart';
+import 'package:wearcam/domain/image_annotation.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
@@ -54,16 +62,49 @@ final class WearCamHome extends StatefulWidget {
 
 final class _WearCamHomeState extends State<WearCamHome> {
   int index = 0;
+  CaptureState _lastCaptureState = CaptureState.idle;
+  int _lastTranscriptCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    final current = widget.controller.captureState;
+    if (current == CaptureState.previewing &&
+        _lastCaptureState == CaptureState.idle) {
+      setState(() => index = 1);
+    } else if (current == CaptureState.idle &&
+        _lastCaptureState == CaptureState.previewing) {
+      setState(() => index = 2);
+    }
+    _lastCaptureState = current;
+
+    final transcriptCount = widget.controller.transcriptTurns.length;
+    if (transcriptCount > _lastTranscriptCount && index == 0) {
+      setState(() => index = 2);
+    }
+    _lastTranscriptCount = transcriptCount;
+  }
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       _Home(controller: widget.controller),
-      _Camera(camera: widget.camera),
+      _Camera(camera: widget.camera, controller: widget.controller),
       _Conversation(controller: widget.controller),
       _Settings(
         onChangeBackend: widget.onChangeBackend,
         diagnostics: widget.diagnostics,
+        controller: widget.controller,
       ),
     ];
     return Scaffold(
@@ -169,40 +210,111 @@ final class _Home extends StatelessWidget {
   );
 }
 
-final class _Camera extends StatelessWidget {
-  const _Camera({required this.camera});
+final class _Camera extends StatefulWidget {
+  const _Camera({required this.camera, required this.controller});
   final PhoneCameraSource camera;
+  final ConversationController controller;
+
+  @override
+  State<_Camera> createState() => _CameraState();
+}
+
+final class _CameraState extends State<_Camera> {
+  StreamSubscription<CameraStatus>? _statusSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _statusSubscription = widget.camera.status.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusSubscription?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final controller = camera.controller;
-    if (controller == null || !controller.value.isInitialized) {
+    final cameraController = widget.camera.controller;
+    if (cameraController == null || !cameraController.value.isInitialized) {
       return const Center(
-        child: Text('Start a conversation to connect the rear camera.'),
+        child: Text('Start a conversation to connect the phone camera.'),
       );
     }
-    return Column(
-      children: [
-        const ListTile(
-          title: Text('Camera source'),
-          subtitle: Text(
-            'Phone camera · External/wearable camera — Coming later',
-          ),
-        ),
-        const MaterialBanner(
-          content: Text(
-            'Local preview only — preview video is never uploaded.',
-          ),
-          actions: [SizedBox.shrink()],
-        ),
-        Expanded(
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: controller.value.aspectRatio,
-              child: CameraPreview(controller),
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final currentController = widget.camera.controller;
+        if (currentController == null ||
+            !currentController.value.isInitialized) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final isFront =
+            widget.camera.preferredLens == CameraLensDirection.front;
+        return Column(
+          children: [
+            ListTile(
+              title: const Text('Camera source'),
+              subtitle: Text(
+                'Phone camera (${isFront ? 'front' : 'rear'}) · '
+                'External/wearable camera — Coming later',
+              ),
+              trailing: IconButton(
+                tooltip: isFront
+                    ? 'Switch to rear camera'
+                    : 'Switch to front camera',
+                icon: const Icon(Icons.cameraswitch),
+                onPressed: () async {
+                  try {
+                    await widget.camera.selectLens(
+                      isFront
+                          ? CameraLensDirection.back
+                          : CameraLensDirection.front,
+                    );
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not switch camera lens.'),
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
             ),
-          ),
-        ),
-      ],
+            const MaterialBanner(
+              content: Text(
+                'Local preview only — preview video is never uploaded.',
+              ),
+              actions: [SizedBox.shrink()],
+            ),
+            Expanded(
+              child: CameraPreview(currentController),
+            ),
+            if (widget.controller.captureState == CaptureState.previewing &&
+                widget.controller.captureMode == CaptureMode.manual)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: FilledButton.icon(
+                  key: const Key('manual-capture-button'),
+                  onPressed: widget.controller.triggerCapture,
+                  icon: const Icon(Icons.camera),
+                  label: const Text('Capture'),
+                ),
+              ),
+            if (widget.controller.captureState == CaptureState.previewing &&
+                widget.controller.captureMode == CaptureMode.auto)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Capturing automatically…'),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -262,14 +374,6 @@ final class _ConversationState extends State<_Conversation> {
                 title: Text(controller.visionStatusFor(visionMode)),
               ),
             ),
-          if (controller.positioningGuidance case final guidance?)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.center_focus_strong),
-                title: const Text('Position camera'),
-                subtitle: Text(guidance),
-              ),
-            ),
           Text('Transcript', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           if (turns.isEmpty)
@@ -299,6 +403,44 @@ final class _ConversationState extends State<_Conversation> {
                   ? 'Unmute microphone'
                   : 'Mute microphone',
             ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              FilterChip(
+                avatar: Icon(
+                  controller.noiseBlock
+                      ? Icons.noise_control_off
+                      : Icons.hearing,
+                ),
+                label: Text(
+                  controller.noiseBlock ? 'Noise blocked' : 'Noise open',
+                ),
+                selected: controller.noiseBlock,
+                onSelected: (value) {
+                  controller.noiseBlock = value;
+                },
+              ),
+              SegmentedButton<AppLanguage>(
+                segments: const [
+                  ButtonSegment(
+                    value: AppLanguage.english,
+                    label: Text('EN'),
+                  ),
+                  ButtonSegment(
+                    value: AppLanguage.korean,
+                    label: Text('KR'),
+                  ),
+                ],
+                selected: {controller.language},
+                onSelectionChanged: (selected) {
+                  controller.language = selected.first;
+                },
+              ),
+            ],
           ),
         ],
       );
@@ -333,6 +475,17 @@ final class _TranscriptBubble extends StatelessWidget {
               isUser ? 'You' : 'WearCam',
               style: Theme.of(context).textTheme.labelLarge,
             ),
+            if (turn.imageBytes != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: _AnnotatedImage(
+                    imageBytes: turn.imageBytes!,
+                    annotations: turn.annotations,
+                  ),
+                ),
+              ),
             if (turn.text.isNotEmpty) SelectableText(turn.text),
             if (turn.status == TranscriptStatus.streaming)
               const Text('Speaking…', key: Key('streaming-turn-status')),
@@ -345,52 +498,278 @@ final class _TranscriptBubble extends StatelessWidget {
   }
 }
 
-final class _Settings extends StatelessWidget {
-  const _Settings({required this.onChangeBackend, required this.diagnostics});
-  final Future<void> Function() onChangeBackend;
-  final ConnectionDiagnostics diagnostics;
+final class _AnnotatedImage extends StatefulWidget {
+  const _AnnotatedImage({required this.imageBytes, this.annotations});
+
+  final Uint8List imageBytes;
+  final List<ImageAnnotation>? annotations;
 
   @override
-  Widget build(BuildContext context) => ListView(
-    children: [
-      const ListTile(
-        title: Text('Provider'),
-        subtitle: Text('OpenAI Realtime'),
+  State<_AnnotatedImage> createState() => _AnnotatedImageState();
+}
+
+final class _AnnotatedImageState extends State<_AnnotatedImage> {
+  Future<Size>? _sizeFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.annotations != null && widget.annotations!.isNotEmpty) {
+      _sizeFuture = _resolveImageSize();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_AnnotatedImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.imageBytes, widget.imageBytes)) {
+      _sizeFuture =
+          widget.annotations != null && widget.annotations!.isNotEmpty
+              ? _resolveImageSize()
+              : null;
+    }
+  }
+
+  Future<Size> _resolveImageSize() async {
+    final completer = Completer<Size>();
+    ui.decodeImageFromList(widget.imageBytes, (image) {
+      completer.complete(
+        Size(image.width.toDouble(), image.height.toDouble()),
+      );
+      image.dispose();
+    });
+    return completer.future;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final image =
+        Image.memory(widget.imageBytes, gaplessPlayback: true, width: 200);
+    final regions = widget.annotations;
+    if (regions == null || regions.isEmpty) return image;
+    return SizedBox(
+      width: 200,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return FutureBuilder<Size>(
+            future: _sizeFuture,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) return image;
+              final imageSize = snapshot.data!;
+              final displayWidth = constraints.maxWidth;
+              final displayHeight =
+                  displayWidth * imageSize.height / imageSize.width;
+              return SizedBox(
+                width: displayWidth,
+                height: displayHeight,
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: image),
+                    for (final region in regions)
+                      Positioned(
+                        left: region.x * displayWidth,
+                        top: region.y * displayHeight,
+                        width: region.width * displayWidth,
+                        height: region.height * displayHeight,
+                        child: _AnnotationOverlay(label: region.label),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
-      ListTile(
-        key: const Key('change-backend-action'),
-        leading: const Icon(Icons.settings_ethernet),
-        title: const Text('Change backend'),
-        subtitle: const Text('Update the saved WearCam backend URL'),
-        onTap: () => handleChangeBackend(onChangeBackend, diagnostics),
+    );
+  }
+}
+
+final class _AnnotationOverlay extends StatelessWidget {
+  const _AnnotationOverlay({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: colors.primary, width: 2),
+        borderRadius: BorderRadius.circular(4),
       ),
-      if (kDebugMode)
-        ListTile(
-          key: const Key('connection-diagnostics-action'),
-          leading: const Icon(Icons.bug_report_outlined),
-          title: const Text('Connection diagnostics'),
-          subtitle: const Text('Debug-only sanitized connection timeline'),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => _DiagnosticsScreen(diagnostics: diagnostics),
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          decoration: BoxDecoration(
+            color: colors.primary,
+            borderRadius: const BorderRadius.only(
+              bottomRight: Radius.circular(4),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: colors.onPrimary,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ),
-      const ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
-      const ListTile(
-        title: Text('Long edge'),
-        subtitle: Text('1280 px maximum'),
       ),
-      const ListTile(
-        title: Text('Retention'),
-        subtitle: Text('In memory until session stop'),
-      ),
-      const ListTile(
-        title: Text('Guidance'),
-        subtitle: Text('Planned for Milestone 3'),
-      ),
-    ],
+    );
+  }
+}
+
+final class _Settings extends StatefulWidget {
+  const _Settings({
+    required this.onChangeBackend,
+    required this.diagnostics,
+    required this.controller,
+  });
+  final Future<void> Function() onChangeBackend;
+  final ConnectionDiagnostics diagnostics;
+  final ConversationController controller;
+
+  @override
+  State<_Settings> createState() => _SettingsState();
+}
+
+final class _SettingsState extends State<_Settings> {
+  bool _showAdvanced = false;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) => ListView(
+      children: [
+        const ListTile(
+          title: Text('Provider'),
+          subtitle: Text('OpenAI Realtime'),
+        ),
+        ListTile(
+          key: const Key('change-backend-action'),
+          leading: const Icon(Icons.settings_ethernet),
+          title: const Text('Change backend'),
+          subtitle: const Text('Update the saved WearCam backend URL'),
+          onTap: () => handleChangeBackend(
+            widget.onChangeBackend,
+            widget.diagnostics,
+          ),
+        ),
+        ListTile(
+          key: const Key('capture-mode-setting'),
+          leading: const Icon(Icons.camera_alt),
+          title: const Text('Capture mode'),
+          subtitle: Text(
+            widget.controller.captureMode == CaptureMode.auto
+                ? 'Auto — captures after a short delay'
+                : 'Manual — tap to capture',
+          ),
+          trailing: Switch(
+            value: widget.controller.captureMode == CaptureMode.manual,
+            onChanged: (manual) {
+              widget.controller.captureMode =
+                  manual ? CaptureMode.manual : CaptureMode.auto;
+            },
+          ),
+        ),
+        ListTile(
+          key: const Key('chat-mode-setting'),
+          leading: const Icon(Icons.chat_bubble_outline),
+          title: const Text('Chat mode'),
+          subtitle: Text(
+            widget.controller.chatMode == ChatMode.chatty
+                ? 'Chatty — friendly and conversational'
+                : 'Chill — minimal, terse responses',
+          ),
+          trailing: Switch(
+            value: widget.controller.chatMode == ChatMode.chill,
+            onChanged: (chill) {
+              widget.controller.chatMode =
+                  chill ? ChatMode.chill : ChatMode.chatty;
+            },
+          ),
+        ),
+        if (kDebugMode)
+          ListTile(
+            key: const Key('connection-diagnostics-action'),
+            leading: const Icon(Icons.bug_report_outlined),
+            title: const Text('Connection diagnostics'),
+            subtitle: const Text('Debug-only sanitized connection timeline'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    _DiagnosticsScreen(diagnostics: widget.diagnostics),
+              ),
+            ),
+          ),
+        const ListTile(title: Text('JPEG quality'), subtitle: Text('82%')),
+        const ListTile(
+          title: Text('Long edge'),
+          subtitle: Text('1280 px maximum'),
+        ),
+        const ListTile(
+          title: Text('Retention'),
+          subtitle: Text('In memory until session stop'),
+        ),
+        const ListTile(
+          title: Text('Guidance'),
+          subtitle: Text('Planned for Milestone 3'),
+        ),
+        const Divider(),
+        ListTile(
+          key: const Key('advanced-settings-toggle'),
+          leading: const Icon(Icons.tune),
+          title: const Text('Advanced settings'),
+          trailing: Switch(
+            value: _showAdvanced,
+            onChanged: (value) => setState(() => _showAdvanced = value),
+          ),
+        ),
+        if (_showAdvanced) ...[
+          ListTile(
+            key: const Key('vad-threshold-setting'),
+            leading: const Icon(Icons.hearing),
+            title: const Text('Voice detection sensitivity'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Threshold: '
+                  '${widget.controller.vadThreshold.toStringAsFixed(2)}'
+                  ' — ${_vadLabel(widget.controller.vadThreshold)}',
+                ),
+                Slider(
+                  value: widget.controller.vadThreshold,
+                  min: 0.5,
+                  max: 1.0,
+                  divisions: 10,
+                  label: widget.controller.vadThreshold.toStringAsFixed(2),
+                  onChanged: (value) {
+                    widget.controller.vadThreshold = value;
+                  },
+                ),
+                const Text(
+                  'Higher = less sensitive to noise, '
+                  'lower = more responsive to quiet speech',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    ),
   );
+
+  static String _vadLabel(double threshold) {
+    if (threshold >= 0.9) return 'very strict';
+    if (threshold >= 0.8) return 'strict';
+    if (threshold >= 0.7) return 'moderate';
+    if (threshold >= 0.6) return 'sensitive';
+    return 'very sensitive';
+  }
 }
 
 @visibleForTesting

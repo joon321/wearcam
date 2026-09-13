@@ -37,7 +37,9 @@ final class OpenAIRealtimeProvider implements AIProvider {
   final _toolCalls = StreamController<ToolCall>.broadcast();
   RealtimeConnection? _connection;
   bool _microphoneMuted = false;
+  double _vadThreshold = 0.85;
   Future<void>? _stopInProgress;
+  Completer<void>? _sessionReady;
   final Map<String, TranscriptTurn> _transcriptTurns = {};
   static const _maximumTranscriptTurns = 100;
   ConnectionStage _stage = ConnectionStage.readBackendConfiguration;
@@ -95,6 +97,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   Future<void> _start() async {
     final temporaryCredential = await _credentials();
+    _sessionReady = Completer<void>();
     final connection = _connectionFactory(_handleEvent);
     _connection = connection;
     await _runStage(
@@ -247,6 +250,15 @@ final class OpenAIRealtimeProvider implements AIProvider {
   void _handleEvent(String wire) {
     final event = _protocol.decodeEvent(wire);
     if (event == null) return;
+    final type = event['type'];
+    if (type == 'session.created') {
+      _send(OpenAIRealtimeProtocol.sessionUpdateVad(threshold: _vadThreshold));
+      final ready = _sessionReady;
+      if (ready != null && !ready.isCompleted) ready.complete();
+    } else if (type == 'session.updated') {
+      final ready = _sessionReady;
+      if (ready != null && !ready.isCompleted) ready.complete();
+    }
     for (final transcriptEvent in _protocol.transcriptEvents(event)) {
       _handleTranscriptEvent(transcriptEvent);
     }
@@ -309,6 +321,10 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   @override
   Future<void> sendGreeting(String text) async {
+    final ready = _sessionReady;
+    if (ready == null) return;
+    await ready.future;
+    if (_sessionReady != ready || _connection == null) return;
     _send(_protocol.greetingRequest(text));
   }
 
@@ -330,6 +346,59 @@ final class OpenAIRealtimeProvider implements AIProvider {
   Future<void> setMicrophoneMuted(bool muted) async {
     _microphoneMuted = muted;
     await _connection?.setMicrophoneMuted(muted);
+  }
+
+  @override
+  Future<void> updateSessionInstructions(String instructions) async {
+    if (_connection == null) return;
+    _send(OpenAIRealtimeProtocol.sessionUpdateInstructions(instructions));
+  }
+
+  @override
+  Future<void> updateVadThreshold(double threshold) async {
+    _vadThreshold = threshold;
+    if (_connection == null) return;
+    _send(OpenAIRealtimeProtocol.sessionUpdateVad(threshold: threshold));
+  }
+
+  @override
+  Future<ImageSearchResult?> searchImage(String query) async {
+    try {
+      final response = await _http
+          .post(
+            backendBaseUri.resolve('/v1/image-search'),
+            headers: const {'content-type': 'application/json'},
+            body: jsonEncode({'query': query}),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) return null;
+      final data = jsonDecode(response.body);
+      if (data is! Map<String, dynamic>) return null;
+      final results = data['results'];
+      if (results is! List || results.isEmpty) return null;
+      final first = results[0] as Map<String, dynamic>;
+      final thumbnailUrl = first['thumbnailUrl'] as String?;
+      if (thumbnailUrl == null || thumbnailUrl.isEmpty) return null;
+      final imageRequest = http.Request('GET', Uri.parse(thumbnailUrl));
+      final imageStream = await _http
+          .send(imageRequest)
+          .timeout(const Duration(seconds: 8));
+      if (imageStream.statusCode != 200) return null;
+      final contentType = imageStream.headers['content-type'] ?? '';
+      if (!contentType.startsWith('image/')) return null;
+      const maxImageBytes = 5 * 1024 * 1024;
+      final imageBytes = await imageStream.stream
+          .toBytes()
+          .timeout(const Duration(seconds: 8));
+      if (imageBytes.length > maxImageBytes) return null;
+      return ImageSearchResult(
+        imageBytes: imageBytes,
+        title: (first['title'] as String?) ?? query,
+        sourceUrl: (first['sourceUrl'] as String?) ?? thumbnailUrl,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
@@ -358,6 +427,11 @@ final class OpenAIRealtimeProvider implements AIProvider {
     // it must never close the same WebRTC object twice.
     final connection = _connection;
     _connection = null;
+    final ready = _sessionReady;
+    _sessionReady = null;
+    if (ready != null && !ready.isCompleted) {
+      ready.complete();
+    }
     try {
       await connection?.stop();
     } finally {
