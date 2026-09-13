@@ -52,9 +52,9 @@ final class ConversationController extends ChangeNotifier
   static const _chillInstructions =
       'Respond with the absolute minimum words necessary. One to five words max when possible. No filler, no pleasantries, no elaboration unless the user explicitly asks for detail. Be direct and terse.';
   static const _noiseBlockInstructions =
-      'If you receive a very short transcription (one or two syllables, a single character, '
-      'or an unclear/ambiguous utterance), ignore it completely and produce no output. '
-      'Only respond to clear, intelligible multi-word speech directed at you.';
+      'If you receive a transcription that is clearly not intelligible speech — a single ambiguous character, '
+      'random symbols, or garbled nonsense — ignore it completely and produce no output. '
+      'Short but clear commands like "yes", "no", "look at this", "check this", or "can you see" are valid and must be answered normally.';
   ConversationController({
     required this.camera,
     required this.provider,
@@ -96,6 +96,7 @@ final class ConversationController extends ChangeNotifier
       connectionState = state;
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
+        unawaited(provider.updateVadThreshold(_vadThreshold));
         _applySessionSettings();
         unawaited(provider.sendGreeting(connectionGreeting));
         unawaited(_setWakelock(true));
