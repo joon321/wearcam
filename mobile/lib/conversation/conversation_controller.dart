@@ -7,6 +7,7 @@ import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/capture_coordinator.dart';
 import 'package:wearcam/camera/frame_processor.dart';
 import 'package:wearcam/domain/ai_provider.dart';
+import 'package:wearcam/domain/app_language.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/capture_mode.dart';
 import 'package:wearcam/domain/chat_mode.dart';
@@ -34,12 +35,26 @@ final class ConversationController extends ChangeNotifier
   static const connectionGreetingChill = 'Ready when you are.';
 
   static const _baseInstructions =
-      'NEVER speak unless the user speaks to you first. Do not initiate conversation, ask unprompted questions, offer unsolicited commentary, or act on your own initiative. Wait silently until the user clearly addresses you. If there is silence, stay silent.'
-      "\nIf the audio is unclear, garbled, noisy, or not clearly intelligible human speech, stay completely silent. Produce no output. Never say \"I can't hear you\" or similar. Only respond to clear human speech.";
+      'You are WearCam, a concise spoken assistant in a visual conversation. '
+      'Visual access is already authorized while the bridge reports it enabled. '
+      'Never ask the user to authorize or start a visual session.'
+      '\nNEVER speak unless the user speaks to you first. Do not initiate conversation, '
+      'ask unprompted questions, offer unsolicited commentary, or act on your own initiative. '
+      'Wait silently until the user clearly addresses you. If there is silence, stay silent.'
+      '\nOnly call get_current_view when the user explicitly asks you to look at something. '
+      'Never capture proactively. Keep responses short.'
+      '\nAfter receiving an image, do not describe what you see unless asked. Acknowledge briefly and wait.'
+      "\nCRITICAL RULE: If the audio is unclear, garbled, noisy, or not clearly intelligible human speech, "
+      "stay completely silent. Produce absolutely no output. Never say \"I can't hear you\" or similar. "
+      'Only respond to clear human speech directed at you. Ignore ambient sounds, music, TV, and environmental noise.';
   static const _chattyInstructions =
       'Respond in a natural, conversational tone. Keep answers concise but friendly.';
   static const _chillInstructions =
       'Respond with the absolute minimum words necessary. One to five words max when possible. No filler, no pleasantries, no elaboration unless the user explicitly asks for detail. Be direct and terse.';
+  static const _noiseBlockInstructions =
+      'If you receive a very short transcription (one or two syllables, a single character, '
+      'or an unclear/ambiguous utterance), ignore it completely and produce no output. '
+      'Only respond to clear, intelligible multi-word speech directed at you.';
   ConversationController({
     required this.camera,
     required this.provider,
@@ -50,7 +65,9 @@ final class ConversationController extends ChangeNotifier
     Duration minimumSessionCaptureInterval = const Duration(seconds: 2),
     CaptureMode captureMode = CaptureMode.auto,
     ChatMode chatMode = ChatMode.chatty,
-    double vadThreshold = 0.85,
+    double vadThreshold = 0.95,
+    bool noiseBlock = true,
+    AppLanguage language = AppLanguage.english,
     this.captureAutoDelay = const Duration(seconds: 2),
   }) : diagnostics =
            diagnostics ?? ConnectionDiagnostics(backendHost: 'unknown'),
@@ -59,6 +76,8 @@ final class ConversationController extends ChangeNotifier
        _captureMode = captureMode,
        _chatMode = chatMode,
        _vadThreshold = vadThreshold,
+       _noiseBlock = noiseBlock,
+       _language = language,
        cameraSources = cameraSources ?? CameraSourceManager(sources: [camera]) {
     captureCoordinator = CaptureCoordinator(
       sources: this.cameraSources,
@@ -77,11 +96,7 @@ final class ConversationController extends ChangeNotifier
       connectionState = state;
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
-        if (_chatMode == ChatMode.chill) {
-          unawaited(provider.updateSessionInstructions(
-            '$_baseInstructions\n$_chillInstructions',
-          ));
-        }
+        _applySessionSettings();
         unawaited(provider.sendGreeting(connectionGreeting));
         unawaited(_setWakelock(true));
       }
@@ -138,6 +153,8 @@ final class ConversationController extends ChangeNotifier
   CaptureMode _captureMode;
   ChatMode _chatMode;
   double _vadThreshold;
+  bool _noiseBlock;
+  AppLanguage _language;
   final Duration captureAutoDelay;
 
   CaptureMode get captureMode => _captureMode;
@@ -161,18 +178,59 @@ final class ConversationController extends ChangeNotifier
     if (_chatMode == mode) return;
     _chatMode = mode;
     if (connectionState == AIConnectionState.connected) {
-      final modeText =
-          mode == ChatMode.chill ? _chillInstructions : _chattyInstructions;
-      unawaited(
-        provider.updateSessionInstructions('$_baseInstructions\n$modeText'),
-      );
+      _applySessionSettings();
     }
     notifyListeners();
   }
 
-  String get connectionGreeting => _chatMode == ChatMode.chill
-      ? connectionGreetingChill
-      : connectionGreetingChatty;
+  bool get noiseBlock => _noiseBlock;
+  set noiseBlock(bool value) {
+    if (_noiseBlock == value) return;
+    _noiseBlock = value;
+    final newThreshold = value ? 0.95 : 0.70;
+    _vadThreshold = newThreshold;
+    if (connectionState == AIConnectionState.connected) {
+      unawaited(provider.updateVadThreshold(newThreshold));
+      _applySessionSettings();
+    }
+    notifyListeners();
+  }
+
+  AppLanguage get language => _language;
+  set language(AppLanguage value) {
+    if (_language == value) return;
+    _language = value;
+    if (connectionState == AIConnectionState.connected) {
+      _applySessionSettings();
+    }
+    notifyListeners();
+  }
+
+  String get connectionGreeting {
+    if (_language == AppLanguage.korean) {
+      return _chatMode == ChatMode.chill
+          ? '준비됐어요.'
+          : '안녕하세요! 편하게 말씀해주세요.';
+    }
+    return _chatMode == ChatMode.chill
+        ? connectionGreetingChill
+        : connectionGreetingChatty;
+  }
+
+  String _buildInstructions() {
+    final mode =
+        _chatMode == ChatMode.chill ? _chillInstructions : _chattyInstructions;
+    final lang = _language == AppLanguage.korean
+        ? '항상 한국어로 답변하세요. Always respond in Korean.'
+        : 'Always respond in English.';
+    final parts = [_baseInstructions, mode, lang];
+    if (_noiseBlock) parts.add(_noiseBlockInstructions);
+    return parts.join('\n');
+  }
+
+  void _applySessionSettings() {
+    unawaited(provider.updateSessionInstructions(_buildInstructions()));
+  }
   late final CaptureCoordinator captureCoordinator;
   late final StreamSubscription<ToolCall> _toolSubscription;
   StreamSubscription<CameraStatus>? _cameraSubscription;

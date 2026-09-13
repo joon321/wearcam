@@ -9,6 +9,7 @@ import 'package:wearcam/ai/connection_diagnostics.dart';
 import 'package:wearcam/camera/phone_camera_source.dart';
 import 'package:wearcam/conversation/conversation_controller.dart';
 import 'package:wearcam/domain/ai_provider.dart';
+import 'package:wearcam/domain/app_language.dart';
 import 'package:wearcam/domain/camera_source.dart';
 import 'package:wearcam/domain/capture_mode.dart';
 import 'package:wearcam/domain/chat_mode.dart';
@@ -402,6 +403,44 @@ final class _ConversationState extends State<_Conversation> {
                   ? 'Unmute microphone'
                   : 'Mute microphone',
             ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              FilterChip(
+                avatar: Icon(
+                  controller.noiseBlock
+                      ? Icons.noise_control_off
+                      : Icons.hearing,
+                ),
+                label: Text(
+                  controller.noiseBlock ? 'Noise blocked' : 'Noise open',
+                ),
+                selected: controller.noiseBlock,
+                onSelected: (value) {
+                  controller.noiseBlock = value;
+                },
+              ),
+              SegmentedButton<AppLanguage>(
+                segments: const [
+                  ButtonSegment(
+                    value: AppLanguage.english,
+                    label: Text('EN'),
+                  ),
+                  ButtonSegment(
+                    value: AppLanguage.korean,
+                    label: Text('KR'),
+                  ),
+                ],
+                selected: {controller.language},
+                onSelectionChanged: (selected) {
+                  controller.language = selected.first;
+                },
+              ),
+            ],
           ),
         ],
       );
