@@ -33,6 +33,7 @@ abstract interface class AIProvider {
   Future<void> sendImage(PreparedFrame frame, String context);
   Future<void> completeToolCall(String callId, Map<String, Object?> output);
   Future<void> setMicrophoneMuted(bool muted);
+  Future<void> setNoiseGateEnabled(bool enabled);
   Future<void> updateSessionInstructions(String instructions);
   Future<void> updateVadThreshold(double threshold);
   Future<ImageSearchResult?> searchImage(String query);

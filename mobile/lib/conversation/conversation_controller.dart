@@ -97,6 +97,7 @@ final class ConversationController extends ChangeNotifier
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
         unawaited(provider.updateVadThreshold(_vadThreshold));
+        unawaited(provider.setNoiseGateEnabled(_noiseBlock));
         _applySessionSettings();
         unawaited(provider.sendGreeting(connectionGreeting));
         unawaited(_setWakelock(true));
@@ -192,6 +193,7 @@ final class ConversationController extends ChangeNotifier
     _vadThreshold = newThreshold;
     if (connectionState == AIConnectionState.connected) {
       unawaited(provider.updateVadThreshold(newThreshold));
+      unawaited(provider.setNoiseGateEnabled(value));
       _applySessionSettings();
     }
     notifyListeners();

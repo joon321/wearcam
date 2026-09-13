@@ -958,6 +958,8 @@ final class FakeProvider implements AIProvider {
   @override
   Future<void> setMicrophoneMuted(bool muted) async {}
   @override
+  Future<void> setNoiseGateEnabled(bool enabled) async {}
+  @override
   Future<void> updateSessionInstructions(String instructions) async {}
   @override
   Future<void> updateVadThreshold(double threshold) async {}

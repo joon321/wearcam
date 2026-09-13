@@ -349,6 +349,11 @@ final class OpenAIRealtimeProvider implements AIProvider {
   }
 
   @override
+  Future<void> setNoiseGateEnabled(bool enabled) async {
+    await _connection?.setNoiseGateEnabled(enabled);
+  }
+
+  @override
   Future<void> updateSessionInstructions(String instructions) async {
     if (_connection == null) return;
     _send(OpenAIRealtimeProtocol.sessionUpdateInstructions(instructions));

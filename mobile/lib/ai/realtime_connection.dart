@@ -12,6 +12,7 @@ abstract interface class RealtimeConnection {
   Future<void> waitUntilConnected();
   void send(Map<String, Object?> event);
   Future<void> setMicrophoneMuted(bool muted);
+  Future<void> setNoiseGateEnabled(bool enabled);
   Future<void> stop();
 }
 
@@ -25,6 +26,13 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
   RTCDataChannel? _events;
   MediaStream? _localStream;
   final Completer<void> _connected = Completer<void>();
+  bool _manualMuted = false;
+  bool _noiseGateEnabled = false;
+  bool _noiseGateOpen = false;
+  Timer? _noiseGateTimer;
+  static const _noiseGatePollInterval = Duration(milliseconds: 150);
+  static const _noiseGateThreshold = 0.02;
+  static const _noiseGateHoldDuration = Duration(milliseconds: 600);
 
   @override
   Future<void> acquireMicrophone({required bool muted}) async {
@@ -101,14 +109,74 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
 
   @override
   Future<void> setMicrophoneMuted(bool muted) async {
+    _manualMuted = muted;
+    _applyTrackState();
+  }
+
+  @override
+  Future<void> setNoiseGateEnabled(bool enabled) async {
+    _noiseGateEnabled = enabled;
+    if (enabled) {
+      _noiseGateOpen = false;
+      _applyTrackState();
+      _startNoiseGatePolling();
+    } else {
+      _noiseGateTimer?.cancel();
+      _noiseGateTimer = null;
+      _noiseGateOpen = false;
+      _applyTrackState();
+    }
+  }
+
+  void _applyTrackState() {
+    final shouldEnable = !_manualMuted && (!_noiseGateEnabled || _noiseGateOpen);
     for (final track
         in _localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
-      track.enabled = !muted;
+      track.enabled = shouldEnable;
     }
+  }
+
+  void _startNoiseGatePolling() {
+    _noiseGateTimer?.cancel();
+    _noiseGateTimer = Timer.periodic(_noiseGatePollInterval, (_) async {
+      final peer = _peer;
+      if (peer == null || _manualMuted) return;
+      try {
+        final stats = await peer.getStats();
+        double maxLevel = 0;
+        for (final report in stats) {
+          if (report.type == 'media-source' &&
+              report.values['kind'] == 'audio') {
+            final level = report.values['audioLevel'];
+            if (level is num && level > maxLevel) {
+              maxLevel = level.toDouble();
+            }
+          }
+        }
+        if (maxLevel >= _noiseGateThreshold) {
+          _noiseGateOpen = true;
+          _applyTrackState();
+          _scheduleNoiseGateClose();
+        }
+      } catch (_) {}
+    });
+  }
+
+  Timer? _noiseGateHoldTimer;
+  void _scheduleNoiseGateClose() {
+    _noiseGateHoldTimer?.cancel();
+    _noiseGateHoldTimer = Timer(_noiseGateHoldDuration, () {
+      _noiseGateOpen = false;
+      _applyTrackState();
+    });
   }
 
   @override
   Future<void> stop() async {
+    _noiseGateTimer?.cancel();
+    _noiseGateTimer = null;
+    _noiseGateHoldTimer?.cancel();
+    _noiseGateHoldTimer = null;
     final localStream = _localStream;
     final events = _events;
     final peer = _peer;
