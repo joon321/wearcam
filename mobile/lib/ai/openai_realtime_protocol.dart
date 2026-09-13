@@ -46,7 +46,12 @@ final class OpenAIRealtimeProtocol {
 
   Map<String, Object?> greetingRequest(String text) => {
     'type': 'response.create',
-    'response': {'instructions': 'Say exactly: $text'},
+    'response': {
+      'instructions':
+          'Say exactly the following and then stop. Do not add anything else, '
+          'do not ask questions, do not continue speaking: $text',
+      'max_output_tokens': 100,
+    },
   };
 
   Map<String, Object?> imageMessage(PreparedFrame frame, String context) => {

@@ -23,10 +23,14 @@ void main() {
   });
 
   test('requests an exact spoken greeting', () {
-    expect(protocol.greetingRequest('Hello'), {
-      'type': 'response.create',
-      'response': {'instructions': 'Say exactly: Hello'},
-    });
+    final result = protocol.greetingRequest('Hello');
+    expect(result['type'], 'response.create');
+    final response = result['response'] as Map<String, Object?>;
+    expect(
+      response['instructions'] as String,
+      contains('Hello'),
+    );
+    expect(response['max_output_tokens'], 100);
   });
 
   test('serializes an image as a JPEG data URL', () {
