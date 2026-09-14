@@ -38,6 +38,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
   RealtimeConnection? _connection;
   bool _microphoneMuted = false;
   double _vadThreshold = 0.85;
+  bool _vadAutoResponse = true;
   Future<void>? _stopInProgress;
   Completer<void>? _sessionReady;
   final Map<String, TranscriptTurn> _transcriptTurns = {};
@@ -252,7 +253,7 @@ final class OpenAIRealtimeProvider implements AIProvider {
     if (event == null) return;
     final type = event['type'];
     if (type == 'session.created') {
-      _send(OpenAIRealtimeProtocol.sessionUpdateVad(threshold: _vadThreshold));
+      _sendVadUpdate();
       final ready = _sessionReady;
       if (ready != null && !ready.isCompleted) ready.complete();
     } else if (type == 'session.updated') {
@@ -363,7 +364,26 @@ final class OpenAIRealtimeProvider implements AIProvider {
   Future<void> updateVadThreshold(double threshold) async {
     _vadThreshold = threshold;
     if (_connection == null) return;
-    _send(OpenAIRealtimeProtocol.sessionUpdateVad(threshold: threshold));
+    _sendVadUpdate();
+  }
+
+  @override
+  Future<void> setVadAutoResponse(bool enabled) async {
+    _vadAutoResponse = enabled;
+    if (_connection == null) return;
+    _sendVadUpdate();
+  }
+
+  @override
+  Future<void> createResponse() async {
+    _send(OpenAIRealtimeProtocol.responseCreate);
+  }
+
+  void _sendVadUpdate() {
+    _send(OpenAIRealtimeProtocol.sessionUpdateVad(
+      threshold: _vadThreshold,
+      createResponse: _vadAutoResponse,
+    ));
   }
 
   @override

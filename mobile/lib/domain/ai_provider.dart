@@ -36,6 +36,8 @@ abstract interface class AIProvider {
   Future<void> setNoiseGateEnabled(bool enabled);
   Future<void> updateSessionInstructions(String instructions);
   Future<void> updateVadThreshold(double threshold);
+  Future<void> setVadAutoResponse(bool enabled);
+  Future<void> createResponse();
   Future<ImageSearchResult?> searchImage(String query);
   Future<void> interrupt();
   Future<void> cancelNoiseResponse();

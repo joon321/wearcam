@@ -97,6 +97,7 @@ final class ConversationController extends ChangeNotifier
       if (state == AIConnectionState.connected && !_greetedThisSession) {
         _greetedThisSession = true;
         unawaited(provider.updateVadThreshold(_vadThreshold));
+        unawaited(provider.setVadAutoResponse(!_noiseBlock));
         unawaited(provider.setNoiseGateEnabled(_noiseBlock));
         _applySessionSettings();
         unawaited(provider.sendGreeting(connectionGreeting));
@@ -194,6 +195,7 @@ final class ConversationController extends ChangeNotifier
     _vadThreshold = newThreshold;
     if (connectionState == AIConnectionState.connected) {
       unawaited(provider.updateVadThreshold(newThreshold));
+      unawaited(provider.setVadAutoResponse(!value));
       unawaited(provider.setNoiseGateEnabled(value));
       _applySessionSettings();
     }
@@ -369,12 +371,13 @@ final class ConversationController extends ChangeNotifier
     if (turn.role != TranscriptRole.user) return;
     if (turn.status != TranscriptStatus.completed) return;
     if (_noiseFilteredIds.contains(turn.id)) return;
+    _noiseFilteredIds.add(turn.id);
     final text = turn.text.trim();
     if (text.isEmpty) return;
     if (_isNoiseTranscription(text)) {
-      _noiseFilteredIds.add(turn.id);
-      unawaited(provider.cancelNoiseResponse());
-      debugPrint('WearCam noise filter cancelled: "$text"');
+      debugPrint('WearCam noise filter blocked: "$text"');
+    } else {
+      unawaited(provider.createResponse());
     }
   }
 

@@ -236,6 +236,7 @@ final class OpenAIRealtimeProtocol {
     int prefixPaddingMs = 500,
     int silenceDurationMs = 1000,
     String eagerness = 'low',
+    bool createResponse = true,
   }) => {
     'type': 'session.update',
     'session': {
@@ -245,6 +246,7 @@ final class OpenAIRealtimeProtocol {
         'prefix_padding_ms': prefixPaddingMs,
         'silence_duration_ms': silenceDurationMs,
         'eagerness': eagerness,
+        'create_response': createResponse,
       },
     },
   };
