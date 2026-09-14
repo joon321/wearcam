@@ -254,4 +254,7 @@ final class OpenAIRealtimeProtocol {
   static const clearOutputAudio = <String, Object?>{
     'type': 'output_audio_buffer.clear',
   };
+  static const clearInputAudio = <String, Object?>{
+    'type': 'input_audio_buffer.clear',
+  };
 }

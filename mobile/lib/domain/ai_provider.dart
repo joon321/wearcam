@@ -38,6 +38,7 @@ abstract interface class AIProvider {
   Future<void> updateVadThreshold(double threshold);
   Future<ImageSearchResult?> searchImage(String query);
   Future<void> interrupt();
+  Future<void> cancelNoiseResponse();
   Future<void> stopSession();
 }
 

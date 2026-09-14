@@ -113,6 +113,7 @@ final class ConversationController extends ChangeNotifier
       if (_disposed) return;
       _upsertTranscriptTurn(turn);
       _handleAuthorizationTranscript(turn);
+      _filterNoiseTranscription(turn);
       notifyListeners();
     });
     try {
@@ -290,6 +291,7 @@ final class ConversationController extends ChangeNotifier
   Future<void> _start() async {
     _transcriptTurns.clear();
     _processedTranscriptIds.clear();
+    _noiseFilteredIds.clear();
     _greetedThisSession = false;
     notifyListeners();
     debugPrint(
@@ -359,6 +361,61 @@ final class ConversationController extends ChangeNotifier
   bool _directLookRequest(String text) => RegExp(
     r'\b(look at|take a look|check this|can you see)\b',
   ).hasMatch(text);
+
+  final Set<String> _noiseFilteredIds = {};
+
+  void _filterNoiseTranscription(TranscriptTurn turn) {
+    if (!_noiseBlock) return;
+    if (turn.role != TranscriptRole.user) return;
+    if (turn.status != TranscriptStatus.completed &&
+        turn.status != TranscriptStatus.streaming) {
+      return;
+    }
+    if (_noiseFilteredIds.contains(turn.id)) return;
+    final text = turn.text.trim();
+    if (text.isEmpty) return;
+    if (_isNoiseTranscription(text)) {
+      _noiseFilteredIds.add(turn.id);
+      unawaited(provider.cancelNoiseResponse());
+      debugPrint('WearCam noise filter cancelled: "$text"');
+    }
+  }
+
+  bool _isNoiseTranscription(String text) {
+    if (_whisperHallucinationPhrases.any(
+      (p) => text.toLowerCase().contains(p),
+    )) {
+      return true;
+    }
+    final runes = text.runes.toList();
+    final cjkCount = runes.where(_isCjk).length;
+    if (_language == AppLanguage.english && cjkCount > 0) return true;
+    if (_language == AppLanguage.korean && cjkCount > 0) {
+      final koreanCount = runes.where(_isKorean).length;
+      if (koreanCount == 0) return true;
+    }
+    final letterCount = runes.where(
+      (r) => (r >= 0x41 && r <= 0x5A) || (r >= 0x61 && r <= 0x7A),
+    ).length;
+    if (runes.length <= 3 && letterCount == 0 && cjkCount == 0) return true;
+    return false;
+  }
+
+  static bool _isCjk(int r) =>
+      (r >= 0x4E00 && r <= 0x9FFF) ||
+      (r >= 0x3040 && r <= 0x309F) ||
+      (r >= 0x30A0 && r <= 0x30FF) ||
+      (r >= 0xAC00 && r <= 0xD7AF);
+
+  static bool _isKorean(int r) => r >= 0xAC00 && r <= 0xD7AF;
+
+  static const _whisperHallucinationPhrases = [
+    'thank you for watching',
+    'thanks for watching',
+    'subscribe',
+    'like and subscribe',
+    'please subscribe',
+  ];
 
   void _upsertTranscriptTurn(TranscriptTurn turn) {
     final index = _transcriptTurns.indexWhere(

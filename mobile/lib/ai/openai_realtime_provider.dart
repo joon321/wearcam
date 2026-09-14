@@ -410,9 +410,15 @@ final class OpenAIRealtimeProvider implements AIProvider {
   Future<void> interrupt() async {
     _interruptActiveAssistantTurns();
     _send(OpenAIRealtimeProtocol.responseCancel);
-    // WebRTC can already have buffered audio after cancellation. Clearing the
-    // output buffer makes the user-visible interruption immediate.
     _send(OpenAIRealtimeProtocol.clearOutputAudio);
+  }
+
+  @override
+  Future<void> cancelNoiseResponse() async {
+    _interruptActiveAssistantTurns();
+    _send(OpenAIRealtimeProtocol.responseCancel);
+    _send(OpenAIRealtimeProtocol.clearOutputAudio);
+    _send(OpenAIRealtimeProtocol.clearInputAudio);
   }
 
   @override
