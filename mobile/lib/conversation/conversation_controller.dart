@@ -367,10 +367,7 @@ final class ConversationController extends ChangeNotifier
   void _filterNoiseTranscription(TranscriptTurn turn) {
     if (!_noiseBlock) return;
     if (turn.role != TranscriptRole.user) return;
-    if (turn.status != TranscriptStatus.completed &&
-        turn.status != TranscriptStatus.streaming) {
-      return;
-    }
+    if (turn.status != TranscriptStatus.completed) return;
     if (_noiseFilteredIds.contains(turn.id)) return;
     final text = turn.text.trim();
     if (text.isEmpty) return;

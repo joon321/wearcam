@@ -415,10 +415,12 @@ final class OpenAIRealtimeProvider implements AIProvider {
 
   @override
   Future<void> cancelNoiseResponse() async {
+    final connection = _connection;
+    if (connection == null) return;
     _interruptActiveAssistantTurns();
-    _send(OpenAIRealtimeProtocol.responseCancel);
-    _send(OpenAIRealtimeProtocol.clearOutputAudio);
-    _send(OpenAIRealtimeProtocol.clearInputAudio);
+    connection.send(OpenAIRealtimeProtocol.responseCancel);
+    connection.send(OpenAIRealtimeProtocol.clearOutputAudio);
+    connection.send(OpenAIRealtimeProtocol.clearInputAudio);
   }
 
   @override
