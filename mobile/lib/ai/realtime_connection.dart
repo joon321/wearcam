@@ -67,6 +67,7 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
       _audioTrack = track;
       _audioSender = await peer.addTrack(track, stream);
     }
+    await _applyTrackState();
     final channel = await peer.createDataChannel(
       'oai-events',
       RTCDataChannelInit(),
@@ -111,7 +112,7 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
   @override
   Future<void> setMicrophoneMuted(bool muted) async {
     _manualMuted = muted;
-    _applyTrackState();
+    await _applyTrackState();
   }
 
   @override
@@ -119,21 +120,21 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
     _noiseGateEnabled = enabled;
     if (enabled) {
       _noiseGateOpen = false;
-      _applyTrackState();
+      await _applyTrackState();
       _startNoiseGatePolling();
     } else {
       _noiseGateTimer?.cancel();
       _noiseGateTimer = null;
       _noiseGateOpen = false;
-      _applyTrackState();
+      await _applyTrackState();
     }
   }
 
-  void _applyTrackState() {
+  Future<void> _applyTrackState() async {
     final shouldSend = !_manualMuted && (!_noiseGateEnabled || _noiseGateOpen);
     final sender = _audioSender;
     if (sender != null) {
-      unawaited(sender.replaceTrack(shouldSend ? _audioTrack : null));
+      await sender.replaceTrack(shouldSend ? _audioTrack : null);
     }
   }
 
@@ -166,7 +167,7 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
         }
         if (maxLevel >= _noiseGateThreshold) {
           _noiseGateOpen = true;
-          _applyTrackState();
+          await _applyTrackState();
           _scheduleNoiseGateClose();
         }
       } catch (_) {}
@@ -178,7 +179,7 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
     _noiseGateHoldTimer?.cancel();
     _noiseGateHoldTimer = Timer(_noiseGateHoldDuration, () {
       _noiseGateOpen = false;
-      _applyTrackState();
+      unawaited(_applyTrackState());
     });
   }
 
