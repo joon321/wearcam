@@ -259,4 +259,9 @@ final class OpenAIRealtimeProtocol {
   static const clearInputAudio = <String, Object?>{
     'type': 'input_audio_buffer.clear',
   };
+
+  static Map<String, Object?> deleteConversationItem(String itemId) => {
+    'type': 'conversation.item.delete',
+    'item_id': itemId,
+  };
 }

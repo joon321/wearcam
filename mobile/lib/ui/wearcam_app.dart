@@ -17,6 +17,8 @@ import 'package:wearcam/domain/image_annotation.dart';
 import 'package:wearcam/domain/transcript_turn.dart';
 import 'package:wearcam/domain/vision_mode.dart';
 
+const _buildHash = String.fromEnvironment('BUILD_HASH', defaultValue: 'dev');
+
 final class WearCamApp extends StatelessWidget {
   const WearCamApp({
     required this.camera,
@@ -718,6 +720,12 @@ final class _SettingsState extends State<_Settings> {
           subtitle: Text('Planned for Milestone 3'),
         ),
         const Divider(),
+        const ListTile(
+          key: Key('build-info'),
+          dense: true,
+          title: Text('Build'),
+          subtitle: Text(_buildHash),
+        ),
         ListTile(
           key: const Key('advanced-settings-toggle'),
           leading: const Icon(Icons.tune),

@@ -956,6 +956,8 @@ final class FakeProvider implements AIProvider {
   @override
   Future<void> cancelNoiseResponse() async {}
   @override
+  Future<void> deleteConversationItem(String itemId) async {}
+  @override
   Future<void> createResponse() async {}
   @override
   Future<void> setVadAutoResponse(bool enabled) async {}

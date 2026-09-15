@@ -41,6 +41,7 @@ abstract interface class AIProvider {
   Future<ImageSearchResult?> searchImage(String query);
   Future<void> interrupt();
   Future<void> cancelNoiseResponse();
+  Future<void> deleteConversationItem(String itemId);
   Future<void> stopSession();
 }
 

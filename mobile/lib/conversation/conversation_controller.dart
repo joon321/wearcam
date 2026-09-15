@@ -376,17 +376,15 @@ final class ConversationController extends ChangeNotifier
     if (text.isEmpty) return;
     if (_isNoiseTranscription(text)) {
       debugPrint('WearCam noise filter blocked: "$text"');
+      unawaited(provider.deleteConversationItem(turn.id));
     } else {
       unawaited(provider.createResponse());
     }
   }
 
   bool _isNoiseTranscription(String text) {
-    if (_whisperHallucinationPhrases.any(
-      (p) => text.toLowerCase().contains(p),
-    )) {
-      return true;
-    }
+    final lower = text.toLowerCase().trim();
+    if (_whisperHallucinationPhrases.any((p) => lower.contains(p))) return true;
     final runes = text.runes.toList();
     final cjkCount = runes.where(_isCjk).length;
     if (_language == AppLanguage.english && cjkCount > 0) return true;
@@ -394,10 +392,13 @@ final class ConversationController extends ChangeNotifier
       final koreanCount = runes.where(_isKorean).length;
       if (koreanCount == 0) return true;
     }
-    final letterCount = runes.where(
-      (r) => (r >= 0x41 && r <= 0x5A) || (r >= 0x61 && r <= 0x7A),
-    ).length;
-    if (runes.length <= 3 && letterCount == 0 && cjkCount == 0) return true;
+    final words = lower.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (words.length < 3) {
+      if (_language == AppLanguage.korean) {
+        return !_validShortKorean.hasMatch(lower);
+      }
+      return !_validShortEnglish.hasMatch(lower);
+    }
     return false;
   }
 
@@ -409,12 +410,32 @@ final class ConversationController extends ChangeNotifier
 
   static bool _isKorean(int r) => r >= 0xAC00 && r <= 0xD7AF;
 
+  static final _validShortEnglish = RegExp(
+    r'\b(yes|no|yeah|nah|stop|go|help|look|check|show|what|where|how|why|'
+    r'who|when|hello|hi|hey|thanks|okay|ok|sure|please|describe|explain|'
+    r'look at|check this|can you|tell me|show me|what is|what are|'
+    r'do you|read this|say that|try again|go back|come on|hold on)\b',
+  );
+
+  static final _validShortKorean = RegExp(
+    r'(네|아니|응|봐|보여|뭐|어디|왜|누구|언제|어떻게|멈춰|도와|확인|설명|'
+    r'이거 봐|이거 뭐|뭐야|보여줘|알려줘|확인해|다시|잠깐)',
+  );
+
   static const _whisperHallucinationPhrases = [
     'thank you for watching',
     'thanks for watching',
     'subscribe',
     'like and subscribe',
     'please subscribe',
+    'i will help you',
+    'i am listening',
+    "i'm listening",
+    'let me know',
+    'tell me what you need',
+    'i am waiting',
+    "i'm waiting",
+    'how can i help',
   ];
 
   void _upsertTranscriptTurn(TranscriptTurn turn) {

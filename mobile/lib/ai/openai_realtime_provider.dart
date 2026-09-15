@@ -444,6 +444,13 @@ final class OpenAIRealtimeProvider implements AIProvider {
   }
 
   @override
+  Future<void> deleteConversationItem(String itemId) async {
+    final connection = _connection;
+    if (connection == null) return;
+    connection.send(OpenAIRealtimeProtocol.deleteConversationItem(itemId));
+  }
+
+  @override
   Future<void> stopSession() {
     final existing = _stopInProgress;
     if (existing != null) return existing;
