@@ -164,7 +164,7 @@ void main() {
       expect(controller.visionModes.isEnabled, isTrue);
       expect(provider.greetings, hasLength(1));
       expect(provider.greetings.single,
-          ConversationController.connectionGreetingChatty);
+          ConversationController.connectionGreetingChill);
       provider.emitState(AIConnectionState.connected);
       await Future<void>.delayed(Duration.zero);
       expect(provider.greetings, hasLength(1));
@@ -368,7 +368,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(provider.greetings, hasLength(1));
     final greetingTurn = controller.transcriptTurns.firstWhere(
-      (turn) => turn.text == ConversationController.connectionGreetingChatty,
+      (turn) => turn.text == ConversationController.connectionGreetingChill,
     );
     expect(greetingTurn.role, TranscriptRole.assistant);
     expect(greetingTurn.status, TranscriptStatus.completed);

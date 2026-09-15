@@ -64,7 +64,7 @@ final class ConversationController extends ChangeNotifier
     CameraSourceManager? cameraSources,
     Duration minimumSessionCaptureInterval = const Duration(seconds: 2),
     CaptureMode captureMode = CaptureMode.auto,
-    ChatMode chatMode = ChatMode.chatty,
+    ChatMode chatMode = ChatMode.chill,
     double vadThreshold = 0.95,
     bool noiseBlock = true,
     AppLanguage language = AppLanguage.english,
