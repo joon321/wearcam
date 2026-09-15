@@ -29,8 +29,21 @@ final class PhoneCameraSource implements CameraSource {
     if (_preferredLens == direction) return;
     final reconnect = _controller != null;
     if (reconnect) await _disconnect();
+    final previousLens = _preferredLens;
     _preferredLens = direction;
-    if (reconnect) await _connect();
+    if (reconnect) {
+      try {
+        await _connect();
+      } catch (_) {
+        _preferredLens = previousLens;
+        try {
+          await _connect();
+        } catch (_) {
+          // Best-effort fallback; rethrow the original failure.
+        }
+        rethrow;
+      }
+    }
   });
 
   CameraController? get controller => _controller;
@@ -72,8 +85,6 @@ final class PhoneCameraSource implements CameraSource {
     if (controller == null || !controller.value.isInitialized) {
       throw StateError('Phone camera is not connected');
     }
-    // Timestamp immediately after plugin capture completion: no preview/cached
-    // frame is used.
     final file = await controller.takePicture();
     final bytes = await file.readAsBytes();
     final size = controller.value.previewSize;

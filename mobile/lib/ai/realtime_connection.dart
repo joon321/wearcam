@@ -12,6 +12,7 @@ abstract interface class RealtimeConnection {
   Future<void> waitUntilConnected();
   void send(Map<String, Object?> event);
   Future<void> setMicrophoneMuted(bool muted);
+  Future<void> setNoiseGateEnabled(bool enabled);
   Future<void> stop();
 }
 
@@ -24,7 +25,16 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
   RTCPeerConnection? _peer;
   RTCDataChannel? _events;
   MediaStream? _localStream;
+  RTCRtpSender? _audioSender;
+  MediaStreamTrack? _audioTrack;
   final Completer<void> _connected = Completer<void>();
+  bool _manualMuted = false;
+  bool _noiseGateEnabled = false;
+  bool _noiseGateOpen = false;
+  Timer? _noiseGateTimer;
+  static const _noiseGatePollInterval = Duration(milliseconds: 150);
+  static const _noiseGateThreshold = 0.02;
+  static const _noiseGateHoldDuration = Duration(milliseconds: 600);
 
   @override
   Future<void> acquireMicrophone({required bool muted}) async {
@@ -33,9 +43,7 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
       'video': false,
     });
     _localStream = stream;
-    for (final track in stream.getAudioTracks()) {
-      track.enabled = !muted;
-    }
+    _manualMuted = muted;
   }
 
   @override
@@ -56,8 +64,10 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
     final stream = _localStream;
     if (stream == null) throw StateError('Microphone stream is unavailable.');
     for (final track in stream.getAudioTracks()) {
-      await peer.addTrack(track, stream);
+      _audioTrack = track;
+      _audioSender = await peer.addTrack(track, stream);
     }
+    await _applyTrackState();
     final channel = await peer.createDataChannel(
       'oai-events',
       RTCDataChannelInit(),
@@ -101,18 +111,90 @@ final class WebRtcRealtimeConnection implements RealtimeConnection {
 
   @override
   Future<void> setMicrophoneMuted(bool muted) async {
-    for (final track
-        in _localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
-      track.enabled = !muted;
+    _manualMuted = muted;
+    await _applyTrackState();
+  }
+
+  @override
+  Future<void> setNoiseGateEnabled(bool enabled) async {
+    _noiseGateEnabled = enabled;
+    if (enabled) {
+      _noiseGateOpen = false;
+      await _applyTrackState();
+      _startNoiseGatePolling();
+    } else {
+      _noiseGateTimer?.cancel();
+      _noiseGateTimer = null;
+      _noiseGateOpen = false;
+      await _applyTrackState();
     }
+  }
+
+  Future<void> _applyTrackState() async {
+    final shouldSend = !_manualMuted && (!_noiseGateEnabled || _noiseGateOpen);
+    final sender = _audioSender;
+    if (sender != null) {
+      await sender.replaceTrack(shouldSend ? _audioTrack : null);
+    }
+  }
+
+  void _startNoiseGatePolling() {
+    _noiseGateTimer?.cancel();
+    _noiseGateTimer = Timer.periodic(_noiseGatePollInterval, (_) async {
+      final peer = _peer;
+      if (peer == null || _manualMuted) return;
+      try {
+        final stats = await peer.getStats(_audioTrack);
+        double maxLevel = 0;
+        for (final report in stats) {
+          // Standard format (Chrome desktop, newer implementations)
+          if (report.type == 'media-source' &&
+              report.values['kind'] == 'audio') {
+            final level = report.values['audioLevel'];
+            if (level is num && level > maxLevel) {
+              maxLevel = level.toDouble();
+            }
+          }
+          // Legacy format (Android, older implementations): 0-32768 integer
+          if (report.type == 'ssrc' &&
+              report.values['mediaType'] == 'audio') {
+            final level = report.values['audioInputLevel'];
+            if (level is num && level > 0) {
+              final normalized = (level / 32768.0).clamp(0.0, 1.0);
+              if (normalized > maxLevel) maxLevel = normalized;
+            }
+          }
+        }
+        if (maxLevel >= _noiseGateThreshold) {
+          _noiseGateOpen = true;
+          await _applyTrackState();
+          _scheduleNoiseGateClose();
+        }
+      } catch (_) {}
+    });
+  }
+
+  Timer? _noiseGateHoldTimer;
+  void _scheduleNoiseGateClose() {
+    _noiseGateHoldTimer?.cancel();
+    _noiseGateHoldTimer = Timer(_noiseGateHoldDuration, () {
+      _noiseGateOpen = false;
+      unawaited(_applyTrackState());
+    });
   }
 
   @override
   Future<void> stop() async {
+    _noiseGateTimer?.cancel();
+    _noiseGateTimer = null;
+    _noiseGateHoldTimer?.cancel();
+    _noiseGateHoldTimer = null;
     final localStream = _localStream;
     final events = _events;
     final peer = _peer;
     _localStream = null;
+    _audioSender = null;
+    _audioTrack = null;
     _events = null;
     _peer = null;
     await runRealtimeCleanup([

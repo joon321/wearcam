@@ -46,7 +46,12 @@ final class OpenAIRealtimeProtocol {
 
   Map<String, Object?> greetingRequest(String text) => {
     'type': 'response.create',
-    'response': {'instructions': 'Say exactly: $text'},
+    'response': {
+      'instructions':
+          'Say exactly the following and then stop. Do not add anything else, '
+          'do not ask questions, do not continue speaking: $text',
+      'max_output_tokens': 100,
+    },
   };
 
   Map<String, Object?> imageMessage(PreparedFrame frame, String context) => {
@@ -219,9 +224,44 @@ final class OpenAIRealtimeProtocol {
         );
   }
 
+  static Map<String, Object?> sessionUpdateInstructions(
+    String instructions,
+  ) => {
+    'type': 'session.update',
+    'session': {'instructions': instructions},
+  };
+
+  static Map<String, Object?> sessionUpdateVad({
+    double threshold = 0.85,
+    int prefixPaddingMs = 500,
+    int silenceDurationMs = 1000,
+    String eagerness = 'low',
+    bool createResponse = true,
+  }) => {
+    'type': 'session.update',
+    'session': {
+      'turn_detection': {
+        'type': 'server_vad',
+        'threshold': threshold,
+        'prefix_padding_ms': prefixPaddingMs,
+        'silence_duration_ms': silenceDurationMs,
+        'eagerness': eagerness,
+        'create_response': createResponse,
+      },
+    },
+  };
+
   static const responseCreate = <String, Object?>{'type': 'response.create'};
   static const responseCancel = <String, Object?>{'type': 'response.cancel'};
   static const clearOutputAudio = <String, Object?>{
     'type': 'output_audio_buffer.clear',
+  };
+  static const clearInputAudio = <String, Object?>{
+    'type': 'input_audio_buffer.clear',
+  };
+
+  static Map<String, Object?> deleteConversationItem(String itemId) => {
+    'type': 'conversation.item.delete',
+    'item_id': itemId,
   };
 }

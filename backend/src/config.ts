@@ -4,6 +4,7 @@ export interface Config {
   readonly allowedOrigin: string;
   readonly model: string;
   readonly apiBaseUrl: string;
+  readonly braveSearchApiKey?: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -27,5 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       /\/$/,
       "",
     ),
+    braveSearchApiKey: env.BRAVE_SEARCH_API_KEY?.trim() || undefined,
   };
 }

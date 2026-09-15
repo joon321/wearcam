@@ -57,6 +57,33 @@ Run every case on at least one current Android phone and one iPhone.
     restart it and retry successfully. Record the sanitized copied diagnostics and
     matching backend request ID, but never record a credential or API key.
 
+## Voice-triggered vision controls
+
+16. During a connected visual conversation, say "stop looking" through the
+    microphone. Confirm vision is revoked (indicator changes) and voice continues.
+17. After voice-stopping, say "resume looking" or "start looking." Confirm visual
+    access is restored.
+18. After voice-stopping, say "look at this" or "can you see the label." Confirm
+    visual access is re-enabled by the direct look request.
+19. Confirm "stop watching" and "vision off" also revoke visual access.
+20. Confirm assistant speech containing "stop looking" does not revoke access.
+
+## Camera lens switching
+
+21. Open the Camera tab during an active session and tap the lens-switch button.
+    Confirm the preview switches between front and rear cameras.
+22. After switching to the front camera, ask a visual question. Confirm the
+    transmitted image uses the front camera (sourceId should contain "front").
+23. Switch back to rear. Confirm the next capture uses the rear camera.
+24. Confirm the front-camera preview is mirrored and the transmitted image is
+    correctly oriented (not mirrored).
+
+## Screen wake and sleep
+
+25. Start a visual conversation and leave the phone idle for two or more minutes.
+    Confirm the screen stays on and the conversation remains active.
+26. Stop the conversation and confirm the screen is allowed to sleep normally.
+
 ## Known external validation gates
 
 - A real server-side OpenAI API key and Realtime project access are required to

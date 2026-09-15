@@ -1,0 +1,1 @@
+enum AppLanguage { english, korean }

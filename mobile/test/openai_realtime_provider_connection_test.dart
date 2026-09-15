@@ -346,6 +346,8 @@ final class _FakeConnection implements RealtimeConnection {
   @override
   Future<void> setMicrophoneMuted(bool muted) async {}
   @override
+  Future<void> setNoiseGateEnabled(bool enabled) async {}
+  @override
   Future<void> stop() async {
     await _stop?.call();
   }
