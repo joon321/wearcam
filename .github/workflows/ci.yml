@@ -72,7 +72,7 @@ jobs:
       - run: flutter test
       - run: gradle wrapper --gradle-version 8.12 --distribution-type all
         working-directory: mobile/android
-      - run: flutter build apk --debug
+      - run: flutter build apk --debug --dart-define=BUILD_HASH=${GITHUB_SHA::7}
       - uses: actions/upload-artifact@v4.6.2
         with:
           name: wearcam-android-debug
